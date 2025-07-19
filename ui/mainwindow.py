@@ -534,12 +534,16 @@ class MainWindow(mainwindow_cls):
         save_config()
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if not self.imgtrans_proj.is_empty:
+            self.conditional_save(keep_exist_as_backup=True)
+        while True:
+            if not self.imsave_thread.isRunning():
+                break
+            time.sleep(0.1)
         self.st_manager.hovering_transwidget = None
         self.st_manager.blockSignals(True)
         self.canvas.prepareClose()
         self.save_config()
-        if not self.imgtrans_proj.is_empty:
-            self.imgtrans_proj.save()
         return super().closeEvent(event)
 
     def changeEvent(self, event: QEvent):
@@ -569,14 +573,14 @@ class MainWindow(mainwindow_cls):
         self.canvas.alt_pressed = False
         self.canvas.scale_tool_mode = False
 
-    def conditional_save(self):
+    def conditional_save(self, keep_exist_as_backup=False):
         if self.canvas.projstate_unsaved and not self.opening_dir:
             update_scene_text = save_proj = self.canvas.text_change_unsaved()
             save_rst_only = not self.canvas.draw_change_unsaved()
             if not save_rst_only:
                 save_proj = True
             
-            self.saveCurrentPage(update_scene_text, save_proj, restore_interface=True, save_rst_only=save_rst_only)
+            self.saveCurrentPage(update_scene_text, save_proj, restore_interface=True, save_rst_only=save_rst_only, keep_exist_as_backup=keep_exist_as_backup)
 
     def pageListCurrentItemChanged(self):
         item = self.pageList.currentItem()
@@ -882,7 +886,7 @@ class MainWindow(mainwindow_cls):
             LOGGER.debug('Manually saving...')
             self.saveCurrentPage(update_scene_text=True, save_proj=True, restore_interface=True, save_rst_only=False)
 
-    def saveCurrentPage(self, update_scene_text=True, save_proj=True, restore_interface=False, save_rst_only=False):
+    def saveCurrentPage(self, update_scene_text=True, save_proj=True, restore_interface=False, save_rst_only=False, keep_exist_as_backup=False):
         
         if not self.imgtrans_proj.img_valid:
             return
@@ -916,7 +920,7 @@ class MainWindow(mainwindow_cls):
 
         if save_proj:
             try:
-                self.imgtrans_proj.save()
+                self.imgtrans_proj.save(keep_exist_as_backup=keep_exist_as_backup)
                 if not save_rst_only:
                     mask_path = self.imgtrans_proj.get_mask_path()
                     mask_array = self.imgtrans_proj.mask_array
