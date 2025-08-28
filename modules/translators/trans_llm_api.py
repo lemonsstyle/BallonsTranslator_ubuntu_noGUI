@@ -306,21 +306,25 @@ class LLM_API_Translator(BaseTranslator):
         self.logger.error("All available API keys are currently rate-limited.")
         return None
         
-def _request_translation(self, prompt: str) -> Optional[TranslationResponse]:
-        current_api_key = "lm-studio"
+    def _request_translation(self, prompt: str) -> Optional[TranslationResponse]:
+        # --- Шаг 1: Проверка и выбор ключа/эндпоинта ---
+        current_api_key = "lm-studio" # Для LLM Studio ключ не обязателен, но API ожидает что-то
         if self.provider != "LLM Studio":
             current_api_key = self._select_api_key()
             if not current_api_key:
                 raise ConnectionError("No available API key found.")
 
+        # --- Шаг 2: Валидация эндпоинта для LLM Studio ---
         if self.provider == "LLM Studio" and not self.endpoint:
             raise ValueError("Endpoint must be specified when using the LLM Studio provider (e.g., http://localhost:1234/v1).")
 
+        # --- Шаг 3: Инициализация клиента ---
         if not self._initialize_client(current_api_key):
-            raise ConnectionError("Failed to initialize API client.")
+             raise ConnectionError("Failed to initialize API client.")
         
         self._respect_delay()
         
+        # --- Шаг 4: Формирование аргументов запроса ---
         model_name = self.override_model or self.model
         if ": " in model_name: model_name = model_name.split(": ", 1)[1]
 
@@ -337,12 +341,13 @@ def _request_translation(self, prompt: str) -> Optional[TranslationResponse]:
             "max_tokens": self.max_tokens,
         }
 
-        # --- ИЗМЕНЕНИЕ: Условное добавление response_format ---
         if self.provider == "LLM Studio":
             self.logger.debug("Using 'json_schema' mode for LLM Studio.")
             api_args["response_format"] = {
                 "type": "json_schema",
-                "schema": TranslationResponse.model_json_schema(),
+                "json_schema": {
+                    "schema": TranslationResponse.model_json_schema()
+                },
             }
         elif self.provider in ["OpenAI", "Grok"]:
             self.logger.debug(f"Using 'json_object' mode for {self.provider}.")
@@ -352,6 +357,7 @@ def _request_translation(self, prompt: str) -> Optional[TranslationResponse]:
             api_args["frequency_penalty"] = self.frequency_penalty
             api_args["presence_penalty"] = self.presence_penalty
         
+        # --- Шаг 5: Выполнение запроса и обработка ответа ---
         try:
             completion = self.client.chat.completions.create(**api_args)
         except Exception as e:
