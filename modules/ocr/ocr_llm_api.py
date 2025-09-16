@@ -137,6 +137,7 @@ class LLM_OCR(OCRBase):
     }
 
     popular_models = [
+        "OAI: gpt-4o-mini",
         "OAI: gpt-4-vision-preview",
         "OAI: gpt-4",
         "OAI: gpt-3.5-turbo",
@@ -155,13 +156,13 @@ class LLM_OCR(OCRBase):
         "api_key": {"value": "", "description": "Your API key."},
         "endpoint": {
             "value": "",
-            "description": "Base URL for the API. Leave empty to use provider default.",
+            "description": "Base URL for the API. Leave empty for provider default.",
         },
         "model": {
             "type": "selector",
             "options": popular_models,
-            "value": "",
-            "description": "Select the model to use. Leave empty to use provider default. (Provider prefix indicates the provider).",
+            "value": "OAI: gpt-4o-mini",
+            "description": "Select the model to use. (Provider prefix indicates the provider).",
         },
         "override_model": {
             "value": "",
@@ -170,21 +171,28 @@ class LLM_OCR(OCRBase):
         "language": {
             "type": "selector",
             "options": list(lang_map.keys()),
-            "value": "Auto Detect",
+            "value": "Japanese",
             "description": "Language for OCR.",
         },
+        "detail_level": {
+            "type": "selector",
+            "options": ["auto", "low", "high"],
+            "value": "auto",
+            "description": "Controls image detail level for vision models (e.g., OpenAI, Google). Affects token usage and accuracy.",
+        },
         "prompt": {
-            "value": "Recognize the text in this image.",
-            "description": "Default prompt for OCR.",
+            "type": "editor",
+            "value": "Perform OCR on the provided manga image snippet. The language is **{language}**.\nRecognize all text, including handwritten sound effects (SFX).\n**CRITICAL INSTRUCTION:** If you see jumbled characters, it is likely vertical text that was read horizontally. First, mentally reconstruct the correct vertical text.\n**OUTPUT FORMATTING:** All recognized text from the image must be consolidated into a **single, continuous horizontal line**. Do not use newlines.\nYour final output must be ONLY the recognized text. No explanations.",
+            "description": "The main prompt for the OCR task. Use {language} placeholder.",
         },
         "system_prompt": {
             "type": "editor",
-            "value": "",
+            "value": "You are a specialized OCR engine for manga and comics. Your primary function is to accurately extract and consolidate all recognized text from an image into a **single, continuous horizontal line**. You must return only the raw, recognized text. You do not interpret, translate, or explain the content. You are designed to intelligently handle common OCR errors, such as reconstructing jumbled characters that result from misreading vertical text.",
             "description": "Optional system prompt to guide the model's behavior.",
         },
         "proxy": {
             "value": "",
-            "description": "Proxy address (e.g., http(s)://user:password@host:port or socks4/5://user:password@host:port)",
+            "description": "Proxy address (e.g., http(s)://user:password@host:port)",
         },
         "delay": {"value": 1.0, "description": "Delay in seconds between requests."},
         "requests_per_minute": {
@@ -192,7 +200,7 @@ class LLM_OCR(OCRBase):
             "description": "Maximum number of requests per minute (0 for no limit).",
         },
         "max_response_tokens": {
-            "value": 10000,
+            "value": 4096,
             "description": "Maximum number of tokens in the LLM's response.",
         },
         "description": "OCR using various LLMs compatible with the OpenAI API.",
@@ -211,18 +219,16 @@ class LLM_OCR(OCRBase):
             try:
                 if self.debug_mode:
                     self.logger.info(f"Using proxy: {self.proxy}")
-                proxy_mounts = {
-                    "http://": httpx.HTTPTransport(proxy=self.proxy),
-                    "https://": httpx.HTTPTransport(proxy=self.proxy),
-                }
                 transport = httpx.HTTPTransport(proxy=self.proxy)
             except Exception as e:
-                self.logger.error(f"Invalid proxy configuration: {self.proxy}. Error: {e}")
+                self.logger.error(
+                    f"Invalid proxy configuration: {self.proxy}. Error: {e}"
+                )
                 transport = None
-        
+
         endpoint = self.endpoint
+        provider = self.provider
         if not endpoint:
-            provider = self.provider
             if provider == "OpenAI":
                 endpoint = "https://api.openai.com/v1"
             elif provider == "Google":
@@ -233,11 +239,10 @@ class LLM_OCR(OCRBase):
         self.client = OpenAI(
             api_key=self.api_key,
             base_url=endpoint,
-            http_client=httpx.Client(transport=transport) if transport else None
+            http_client=httpx.Client(transport=transport) if transport else None,
         )
         if self.debug_mode:
             self.logger.info("LLM client initialized.")
-
 
     @property
     def provider(self):
@@ -272,6 +277,10 @@ class LLM_OCR(OCRBase):
         return self.lang_map.get(lang_name)
 
     @property
+    def detail_level(self):
+        return self.get_param_value("detail_level")
+
+    @property
     def prompt(self):
         return self.get_param_value("prompt")
 
@@ -287,22 +296,19 @@ class LLM_OCR(OCRBase):
     def requests_per_minute(self):
         return int(self.get_param_value("requests_per_minute"))
 
-
     @property
     def max_response_tokens(self):
         try:
             return int(self.get_param_value("max_response_tokens"))
         except (ValueError, TypeError):
-            return 10000
+            return 4096
 
     def _respect_delay(self):
         current_time = time.time()
-
         if self.requests_per_minute > 0:
             if current_time - self.minute_start_time >= 60:
                 self.request_count_minute = 0
                 self.minute_start_time = current_time
-
             if self.request_count_minute >= self.requests_per_minute:
                 wait_time = 62 - (current_time - self.minute_start_time)
                 if wait_time > 0:
@@ -313,92 +319,92 @@ class LLM_OCR(OCRBase):
                     time.sleep(wait_time)
                 self.request_count_minute = 0
                 self.minute_start_time = time.time()
-
         time_since_last_request = current_time - self.last_request_time
         if self.debug_mode:
             self.logger.info(
                 f"Time since last request: {time_since_last_request} seconds"
             )
-
         if time_since_last_request < self.request_delay:
             sleep_time = self.request_delay - time_since_last_request
             if self.debug_mode:
                 self.logger.info(f"Waiting {sleep_time} seconds before next request")
             time.sleep(sleep_time)
-
         self.last_request_time = time.time()
         if self.requests_per_minute > 0:
             self.request_count_minute += 1
 
     def ocr(self, img_base64: str, prompt_override: str = None) -> str:
-        """
-        Performs OCR on a base64 encoded image.
-        """
         if self.client is None:
             if self.debug_mode:
                 self.logger.debug("Client is not initialized. Initializing now.")
             self._initialize_client()
-
         if self.debug_mode:
             self.logger.debug(f"Starting OCR on image")
         self._respect_delay()
-
         try:
-            prompt_text = prompt_override if prompt_override else self.prompt
-            if self.language:
-                prompt_text += f" The language is {self.language}."
+            lang_name = self.get_param_value("language")
+            prompt_text = (prompt_override if prompt_override else self.prompt).format(
+                language=lang_name
+            )
 
-            messages = []
-            if self.system_prompt:
-                messages.append({"role": "system", "content": self.system_prompt})
-            messages.append(
+            image_content_part = {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"},
+            }
+
+            provider = self.provider
+            if provider in ["OpenAI", "Google"]:
+                detail_setting = self.detail_level
+                if detail_setting in ["low", "high"]:
+                    image_content_part["image_url"]["detail"] = detail_setting
+                    if self.debug_mode:
+                        self.logger.debug(
+                            f"Adding '{provider}' parameter: detail={detail_setting}"
+                        )
+
+            messages = [
                 {
                     "role": "user",
                     "content": [
                         {"type": "text", "text": prompt_text},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{img_base64}"
-                            },
-                        },
+                        image_content_part,
                     ],
                 }
+            ]
+            if self.system_prompt:
+                messages.insert(0, {"role": "system", "content": self.system_prompt})
+
+            model_name = (
+                self.override_model
+                or self.model
+                or ("gpt-4o-mini" if provider == "OpenAI" else "gemini-1.5-pro-latest")
             )
-
-            model_name = self.override_model
-            if not model_name:
-                model_name = self.model
-                if not model_name:
-                    provider = self.provider
-                    if provider == "OpenAI":
-                        model_name = "gpt-4-vision-preview"
-                    elif provider == "Google":
-                        model_name = "gemini-1.5-pro-latest"
-                    else:
-                        model_name = "gpt-4-vision-preview"
-
-                if ": " in model_name:
-                    model_name = model_name.split(": ", 1)[1]
-
+            if ": " in model_name:
+                model_name = model_name.split(": ", 1)[1]
             if self.debug_mode:
                 self.logger.info(f"Using model: {model_name}")
 
-            response = self.client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                max_tokens=self.max_response_tokens,
-            )
+            request_payload = {
+                "model": model_name,
+                "messages": messages,
+                "max_tokens": self.max_response_tokens,
+            }
+
+            response = self.client.chat.completions.create(**request_payload)
 
             if self.debug_mode:
-                self.logger.debug(f"Raw API response: {response.model_dump_json(indent=2)}")
-
+                self.logger.debug(
+                    f"Raw API response: {response.model_dump_json(indent=2)}"
+                )
             if response.choices:
                 full_text = response.choices[0].message.content
                 if full_text is None:
                     if self.debug_mode:
                         self.logger.warning("OCR response content is None.")
                     return ""
+
+                full_text = full_text.replace("\n", " ").strip()
+
                 if self.debug_mode:
                     self.logger.debug(f"OCR result: {full_text}")
                 return full_text
@@ -406,7 +412,6 @@ class LLM_OCR(OCRBase):
                 if self.debug_mode:
                     self.logger.warning("No text found in OCR response choices.")
                 return ""
-
         except Exception as e:
             self.logger.error(f"OCR error: {e}")
             return ""
@@ -414,9 +419,6 @@ class LLM_OCR(OCRBase):
     def _ocr_blk_list(
         self, img: np.ndarray, blk_list: List[TextBlock], *args, **kwargs
     ):
-        """
-        Processes a list of text blocks in an image.
-        """
         im_h, im_w = img.shape[:2]
         if self.debug_mode:
             self.logger.debug(f"Image dimensions: {im_h}x{im_w}")
@@ -433,10 +435,8 @@ class LLM_OCR(OCRBase):
                 and y1 < y2
             ):
                 cropped_img = img[y1:y2, x1:x2]
-
                 _, buffer = cv2.imencode(".jpg", cropped_img)
                 img_base64 = base64.b64encode(buffer).decode("utf-8")
-
                 if self.debug_mode:
                     self.logger.debug(f"Cropped image dimensions: {cropped_img.shape}")
                 blk.text = self.ocr(
@@ -448,9 +448,6 @@ class LLM_OCR(OCRBase):
                 blk.text = ""
 
     def ocr_img(self, img: np.ndarray, prompt: str = "") -> str:
-        """
-        Performs OCR on the entire image.
-        """
         _, buffer = cv2.imencode(".jpg", img)
         img_base64 = base64.b64encode(buffer).decode("utf-8")
         return self.ocr(img_base64, prompt_override=prompt)
@@ -464,12 +461,9 @@ class LLM_OCR(OCRBase):
             "provider",
             "model",
             "override_model",
-            "max_response_tokens"
+            "max_response_tokens",
         ]:
             self.client = None
-#            if self.debug_mode:
-#                self.logger.info(f"Parameter '{param_key}' changed. Client will be re-initialized on next request.")
-
         if param_key in ["requests_per_minute", "delay"]:
             current_time = time.time()
             self.request_count_minute = 0
