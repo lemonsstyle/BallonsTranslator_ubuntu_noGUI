@@ -134,7 +134,7 @@ class PaddleOCRVLManga(OCRBase):
                 blk.text = self.ocr_img(region)
             else:
                 self.logger.warning('invalid textbbox to target img')
-                blk.text = self.ocr_img(region)
+                blk.text = ['']
 
     def updateParam(self, param_key: str, param_content):
         super().updateParam(param_key, param_content)
