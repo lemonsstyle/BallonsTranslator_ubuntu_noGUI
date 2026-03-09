@@ -61,3 +61,11 @@ install_venv.bat
 install-BT.cmd
 download_models.bat
 Ultralytics/settings.json
+
+# Ubuntu server deployment - ignore data contents but keep folder
+data/*
+!data/.gitkeep
+
+# Ignore test/working directories
+ces/
+.ipynb_checkpoints/
