@@ -209,6 +209,18 @@ class BaseTranslator(BaseModule):
         for tr, blk in zip(translations, textblk_lst):
             blk.translation = tr
 
+    def generate_book_context(self, pages: Dict[str, List[TextBlock]]) -> None:
+        """Override in subclasses that support book-level context pre-analysis.
+        Called after all pages have completed OCR, before translation begins."""
+        pass
+
+    @property
+    def needs_book_context(self) -> bool:
+        """Return True if this translator requires book-level OCR context
+        before translating. When True, the pipeline defers all translation
+        until OCR is complete on every page."""
+        return False
+
     def supported_languages(self) -> List[str]:
         return self.valid_lang_list
 

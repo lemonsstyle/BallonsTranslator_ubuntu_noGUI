@@ -409,9 +409,13 @@ class ImgtransThread(QThread):
         self.translate_thread.num_process_pages = self.num_pages
 
         low_vram_trans = False
+        needs_book_context = False
         if self.translator is not None:
             low_vram_trans = self.translator.low_vram_mode
+            needs_book_context = self.translator.needs_book_context
             self.parallel_trans = not self.translator.is_computational_intensive() and not low_vram_trans
+            if needs_book_context:
+                self.parallel_trans = False
         else:
             self.parallel_trans = False
         if self.parallel_trans and cfg_module.enable_translate:
@@ -506,7 +510,7 @@ class ImgtransThread(QThread):
             if cfg_module.enable_translate:
                 if self.parallel_trans:
                     self.translate_thread.push_pagekey_queue(imgname)
-                elif not low_vram_trans:
+                elif not low_vram_trans and not needs_book_context:
                     self.translator.translate_textblk_lst(blk_list)
                     self.translate_counter += 1
                     self.update_translate_progress.emit(self.translate_counter)
@@ -529,14 +533,25 @@ class ImgtransThread(QThread):
                 if len(blk_removed) > 0:
                     self.imgtrans_proj.load_mask_by_imgname
         
-        if cfg_module.enable_translate and low_vram_trans:
-            unload_modules(self, ['textdetector', 'inpainter', 'ocr'])
+        deferred_translate = low_vram_trans or needs_book_context
+
+        if cfg_module.enable_translate and deferred_translate:
+            if low_vram_trans:
+                unload_modules(self, ['textdetector', 'inpainter', 'ocr'])
+
+            if needs_book_context:
+                try:
+                    LOGGER.info('Generating book context summary from OCR text...')
+                    self.translator.generate_book_context(self.imgtrans_proj.pages)
+                    LOGGER.info('Book context summary generated.')
+                except Exception as e:
+                    LOGGER.error(f'Failed to generate book context: {e}')
+
             for imgname in pages_to_iterate:
-                # 检查是否请求停止
                 if self.stop_requested:
                     LOGGER.info('Translation stopped by user')
                     break
-                    
+
                 blk_list = self.imgtrans_proj.pages[imgname]
                 self.translator.translate_textblk_lst(blk_list)
                 self.translate_counter += 1

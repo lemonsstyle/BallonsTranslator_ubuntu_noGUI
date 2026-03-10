@@ -121,6 +121,23 @@ class LLM_API_Translator(BaseTranslator):
             "description": "Frequency penalty (OpenAI).",
         },
         "presence penalty": {"value": 0.0, "description": "Presence penalty (OpenAI)."},
+        "enable_book_context": {
+            "value": False,
+            "description": "Enable pre-analysis of all OCR text before translation for consistent naming and style.",
+        },
+        "book_context_prompt": {
+            "type": "editor",
+            "value": "You are given all OCR-extracted text from a manga/comic, organized by page.\n"
+                     "Analyze the content and produce a concise reference summary for a translator.\n\n"
+                     "Your summary MUST include:\n"
+                     "1. **Characters**: Each character name in original language, with relationships if apparent.\n"
+                     "2. **Setting**: Genre, time period, world details.\n"
+                     "3. **Tone**: Dialogue style (formal/casual/humorous/dark, etc.)\n"
+                     "4. **Key Terms**: Recurring terms, fictional words, or jargon that need consistent translation.\n"
+                     "5. **Translation Notes**: Any other observations helpful for maintaining consistency.\n\n"
+                     "Keep the summary under 500 words. Do NOT translate the text — only analyze it.",
+            "description": "Prompt template for the book context pre-analysis call.",
+        },
     }
 
     def _setup_translator(self):
@@ -157,6 +174,7 @@ class LLM_API_Translator(BaseTranslator):
         self.minute_start_time = time.time()
         self.key_usage = {}
         self.client = None
+        self._book_context_summary: str = ""
 
     def _initialize_client(self, api_key_to_use: str) -> bool:
         endpoint = self.endpoint
@@ -287,21 +305,89 @@ class LLM_API_Translator(BaseTranslator):
     def global_delay(self) -> float:
         return float(self.get_param_value("delay"))
 
+    @property
+    def enable_book_context(self) -> bool:
+        return bool(self.get_param_value("enable_book_context"))
+
+    @property
+    def book_context_prompt(self) -> str:
+        return self.get_param_value("book_context_prompt")
+
+    @property
+    def needs_book_context(self) -> bool:
+        return self.enable_book_context
+
+    def generate_book_context(self, pages) -> None:
+        all_text_parts = []
+        for page_name, blk_list in pages.items():
+            texts = []
+            for i, blk in enumerate(blk_list):
+                text = blk.get_text().strip()
+                if text:
+                    texts.append(f"[{i + 1}] {text}")
+            if texts:
+                all_text_parts.append(f"=== Page: {page_name} ===\n" + "\n".join(texts))
+
+        if not all_text_parts:
+            self.logger.warning("No OCR text found in any page, skipping book context generation.")
+            return
+
+        all_text = "\n\n".join(all_text_parts)
+        user_message = self.book_context_prompt + "\n\nBelow is the OCR text from the book:\n\n" + all_text
+
+        current_api_key = self._select_api_key()
+        if not current_api_key:
+            self.logger.error("No API key available for book context generation.")
+            return
+
+        if not self._initialize_client(current_api_key):
+            self.logger.error("Failed to initialize client for book context generation.")
+            return
+
+        self._respect_delay()
+
+        model_name = self.override_model or self.model
+        if ": " in model_name:
+            model_name = model_name.split(": ", 1)[1]
+
+        messages = [
+            {"role": "system", "content": "You are a text analysis assistant for manga/comic translation."},
+            {"role": "user", "content": user_message},
+        ]
+
+        try:
+            completion = self.client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=self.max_tokens,
+            )
+            if completion.choices and completion.choices[0].message and completion.choices[0].message.content:
+                self._book_context_summary = completion.choices[0].message.content.strip()
+                self.logger.info(f"Book context summary generated ({len(self._book_context_summary)} chars):\n{self._book_context_summary}")
+            else:
+                self.logger.warning("Empty response from book context pre-analysis.")
+        except Exception as e:
+            self.logger.error(f"Book context pre-analysis failed: {e}")
+
     def _assemble_prompts(self, queries: List[str], to_lang: str):
         from_lang = self.lang_map.get(self.lang_source, self.lang_source)
+        batch_size = 50
 
-        input_elements = [
-            {"id": i + 1, "source": query} for i, query in enumerate(queries)
-        ]
-        input_json_str = json.dumps(input_elements, ensure_ascii=False, indent=2)
+        for batch_start in range(0, len(queries), batch_size):
+            batch = queries[batch_start:batch_start + batch_size]
+            input_elements = [
+                {"id": i + 1, "source": query} for i, query in enumerate(batch)
+            ]
+            input_json_str = json.dumps(input_elements, ensure_ascii=False, indent=2)
 
-        prompt = (
-            f"Please translate the following text snippets from {from_lang} to {to_lang}. "
-            f"The input is provided as a JSON array. Respond with a JSON object in the specified format.\n\n"
-            f"INPUT:\n{input_json_str}"
-        )
+            prompt = (
+                f"Please translate the following text snippets from {from_lang} to {to_lang}. "
+                f"The input is provided as a JSON array. Respond with a JSON object in the specified format.\n\n"
+                f"INPUT:\n{input_json_str}"
+            )
 
-        yield prompt, len(queries)
+            yield prompt, len(batch)
 
     def _respect_delay(self):
         current_time = time.time()
@@ -403,8 +489,16 @@ class LLM_API_Translator(BaseTranslator):
         if ": " in model_name:
             model_name = model_name.split(": ", 1)[1]
 
+        system_content = self.system_prompt
+        if self._book_context_summary:
+            system_content += (
+                "\n\n## Book Context Summary\n"
+                "Use the following context to maintain consistency "
+                "in character names, terminology, and tone:\n\n"
+                + self._book_context_summary
+            )
         messages = [
-            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
         ]
 
