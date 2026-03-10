@@ -140,7 +140,11 @@ class LLM_API_Translator(BaseTranslator):
         },
         "manga_title": {
             "value": "",
-            "description": "Optional: Manga/comic title (e.g., 'Naruto', '火影忍者'). If provided, AI will use this as background context to improve translation accuracy for character names and terminology.",
+            "description": "Optional: Manga/comic title (e.g., 'Naruto', '火影忍者'). Leave empty to auto-extract from folder name. AI will search online for character names and terminology to improve translation accuracy.",
+        },
+        "enable_web_search": {
+            "value": True,
+            "description": "Enable AI to search the web for manga background information (character names, terminology) to improve translation quality.",
         },
     }
 
@@ -179,6 +183,7 @@ class LLM_API_Translator(BaseTranslator):
         self.key_usage = {}
         self.client = None
         self._book_context_summary: str = ""
+        self._manga_info: str = ""
 
     def _initialize_client(self, api_key_to_use: str) -> bool:
         endpoint = self.endpoint
@@ -325,7 +330,110 @@ class LLM_API_Translator(BaseTranslator):
     def manga_title(self) -> str:
         return self.get_param_value("manga_title").strip()
 
-    def generate_book_context(self, pages) -> None:
+    @property
+    def enable_web_search(self) -> bool:
+        return bool(self.get_param_value("enable_web_search"))
+
+    def _extract_manga_title_from_path(self, project_dir: str) -> str:
+        """Extract manga title from project directory path."""
+        import os
+        import re
+
+        # Get the last directory name
+        dir_name = os.path.basename(project_dir.rstrip('/'))
+
+        # Remove common patterns like chapter numbers, volume numbers
+        # Examples: "火影忍者_第1话" -> "火影忍者", "Naruto Vol 1" -> "Naruto"
+        patterns = [
+            r'[_\s]*第?\d+[话話集卷].*$',  # Remove chapter/volume numbers (Chinese)
+            r'[_\s]*Vol\.?\s*\d+.*$',       # Remove "Vol 1", "Vol.1"
+            r'[_\s]*Chapter\s*\d+.*$',      # Remove "Chapter 1"
+            r'[_\s]*Ch\.?\s*\d+.*$',        # Remove "Ch 1", "Ch.1"
+            r'[_\s]*\d+$',                  # Remove trailing numbers
+        ]
+
+        title = dir_name
+        for pattern in patterns:
+            title = re.sub(pattern, '', title, flags=re.IGNORECASE)
+
+        return title.strip()
+
+    def _search_manga_info(self, manga_title: str) -> str:
+        """Use AI to generate manga background information from its knowledge."""
+        if not manga_title:
+            return ""
+
+        try:
+            current_api_key = self._select_api_key()
+            if not current_api_key:
+                self.logger.warning("No API key available for manga info search.")
+                return ""
+
+            if not self._initialize_client(current_api_key):
+                self.logger.warning("Failed to initialize client for manga info search.")
+                return ""
+
+            self._respect_delay()
+
+            model_name = self.override_model or self.model
+            if ": " in model_name:
+                model_name = model_name.split(": ", 1)[1]
+
+            search_prompt = (
+                f"You are helping translate a manga/anime titled '{manga_title}'.\n\n"
+                f"Based on your knowledge, provide a concise reference guide (under 300 words) including:\n"
+                f"1. **Main Characters**: Names in original language and common translations\n"
+                f"   - Example: '火影様' (Hokage-sama) should be translated as '火影大人' (not split into parts)\n"
+                f"2. **Key Terminology**: Titles, ranks, special terms specific to this series\n"
+                f"3. **Translation Conventions**: How character names and terms are typically translated\n"
+                f"4. **Important Context**: Any cultural or story-specific information helpful for translation\n\n"
+                f"If you don't know this work, simply say 'Unknown series' and provide general translation guidelines."
+            )
+
+            messages = [
+                {"role": "system", "content": "You are a manga/anime translation assistant with knowledge of popular series."},
+                {"role": "user", "content": search_prompt},
+            ]
+
+            completion = self.client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=500,
+            )
+
+            if completion.choices and completion.choices[0].message and completion.choices[0].message.content:
+                info = completion.choices[0].message.content.strip()
+                self.logger.info(f"Manga info generated for '{manga_title}' ({len(info)} chars)")
+                return info
+            else:
+                self.logger.warning("Empty response from manga info search.")
+                return ""
+
+        except Exception as e:
+            self.logger.warning(f"Failed to search manga info: {e}")
+            return ""
+
+    def generate_book_context(self, pages, project_dir: str = None) -> None:
+        """Generate book context from OCR text and optionally search for manga info."""
+
+        # Try to extract and search manga title if enabled
+        manga_info = ""
+        if self.enable_web_search and project_dir:
+            # Extract manga title from project directory
+            extracted_title = self._extract_manga_title_from_path(project_dir)
+
+            # Use configured title if available, otherwise use extracted title
+            title_to_search = self.manga_title or extracted_title
+
+            if title_to_search:
+                self.logger.info(f"Searching for manga info: '{title_to_search}'")
+                manga_info = self._search_manga_info(title_to_search)
+                if manga_info and "Unknown series" not in manga_info:
+                    self.logger.info(f"Manga info found for '{title_to_search}'")
+                    # Store it for use in translation
+                    self._manga_info = manga_info
+
         all_text_parts = []
         for page_name, blk_list in pages.items():
             texts = []
@@ -499,7 +607,14 @@ class LLM_API_Translator(BaseTranslator):
 
         system_content = self.system_prompt
 
-        # Add manga title context if provided
+        # Add manga info from web search if available
+        if self._manga_info:
+            system_content += (
+                f"\n\n## Manga/Anime Background Information\n"
+                f"{self._manga_info}"
+            )
+
+        # Add manga title context if manually provided
         if self.manga_title:
             system_content += (
                 f"\n\n## Source Material\n"
