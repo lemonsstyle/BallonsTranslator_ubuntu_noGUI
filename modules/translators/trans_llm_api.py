@@ -144,7 +144,16 @@ class LLM_API_Translator(BaseTranslator):
         },
         "enable_web_search": {
             "value": True,
-            "description": "Enable AI to search the web for manga background information (character names, terminology) to improve translation quality.",
+            "description": "Enable searching wiki pages (萌娘百科, 百度百科, Wikipedia) for manga background information to improve translation quality.",
+        },
+        "search_engine": {
+            "value": "bing",
+            "options": ["bing", "google", "none"],
+            "description": "Search engine to use for finding wiki pages. 'bing' is recommended (free tier available). Set to 'none' to use AI knowledge only.",
+        },
+        "bing_search_key": {
+            "value": "",
+            "description": "Bing Search API key (optional). Get free tier at https://www.microsoft.com/en-us/bing/apis/bing-web-search-api",
         },
     }
 
@@ -334,6 +343,14 @@ class LLM_API_Translator(BaseTranslator):
     def enable_web_search(self) -> bool:
         return bool(self.get_param_value("enable_web_search"))
 
+    @property
+    def search_engine(self) -> str:
+        return self.get_param_value("search_engine")
+
+    @property
+    def bing_search_key(self) -> str:
+        return self.get_param_value("bing_search_key").strip()
+
     def _extract_manga_title_from_path(self, project_dir: str) -> str:
         """Extract manga title from project directory path."""
         import os
@@ -358,19 +375,74 @@ class LLM_API_Translator(BaseTranslator):
 
         return title.strip()
 
+    def _search_wiki_pages(self, manga_title: str) -> str:
+        """Search for wiki pages about the manga and extract content."""
+        if not manga_title:
+            return ""
+
+        # Priority: Chinese wikis (萌娘百科, 百度百科) > Wikipedia
+        search_queries = [
+            f"{manga_title} 萌娘百科",
+            f"{manga_title} 百度百科",
+            f"{manga_title} 角色 wiki",
+            f"{manga_title} wikipedia",
+        ]
+
+        wiki_content = []
+
+        if self.search_engine == "bing" and self.bing_search_key:
+            # Use Bing Search API
+            import requests
+
+            for query in search_queries[:2]:  # Only search first 2 to save API calls
+                try:
+                    headers = {"Ocp-Apim-Subscription-Key": self.bing_search_key}
+                    params = {"q": query, "count": 3, "mkt": "zh-CN"}
+                    response = requests.get(
+                        "https://api.bing.microsoft.com/v7.0/search",
+                        headers=headers,
+                        params=params,
+                        timeout=10
+                    )
+
+                    if response.status_code == 200:
+                        results = response.json()
+                        for item in results.get("webPages", {}).get("value", [])[:2]:
+                            url = item.get("url", "")
+                            snippet = item.get("snippet", "")
+
+                            # Check if it's a wiki page
+                            if any(wiki in url.lower() for wiki in ["moegirl", "baike.baidu", "wikipedia"]):
+                                wiki_content.append(f"Source: {url}\n{snippet}")
+                                self.logger.info(f"Found wiki page: {url}")
+
+                    if wiki_content:
+                        break  # Found content, no need to continue
+
+                except Exception as e:
+                    self.logger.warning(f"Bing search failed for '{query}': {e}")
+                    continue
+
+        return "\n\n".join(wiki_content) if wiki_content else ""
+
     def _search_manga_info(self, manga_title: str) -> str:
-        """Use AI to generate manga background information from its knowledge."""
+        """Search for manga info and extract terminology using LLM."""
         if not manga_title:
             return ""
 
         try:
+            # First, try to get wiki content via search API
+            wiki_content = ""
+            if self.search_engine != "none":
+                wiki_content = self._search_wiki_pages(manga_title)
+
             current_api_key = self._select_api_key()
             if not current_api_key:
-                self.logger.warning("No API key available for manga info search.")
+                self.logger.warning("No API key available for manga info extraction.")
                 return ""
 
             if not self._initialize_client(current_api_key):
-                self.logger.warning("Failed to initialize client for manga info search.")
+                self.logger.warning("Failed to initialize client for manga info extraction.")
                 return ""
 
             self._respect_delay()
@@ -379,16 +451,33 @@ class LLM_API_Translator(BaseTranslator):
             if ": " in model_name:
                 model_name = model_name.split(": ", 1)[1]
 
-            search_prompt = (
-                f"You are helping translate a manga/anime titled '{manga_title}'.\n\n"
-                f"Based on your knowledge, provide a concise reference guide (under 300 words) including:\n"
-                f"1. **Main Characters**: Names in original language and common translations\n"
-                f"   - Example: '火影様' (Hokage-sama) should be translated as '火影大人' (not split into parts)\n"
-                f"2. **Key Terminology**: Titles, ranks, special terms specific to this series\n"
-                f"3. **Translation Conventions**: How character names and terms are typically translated\n"
-                f"4. **Important Context**: Any cultural or story-specific information helpful for translation\n\n"
-                f"If you don't know this work, simply say 'Unknown series' and provide general translation guidelines."
-            )
+            # Build prompt based on whether we have wiki content
+            if wiki_content:
+                search_prompt = (
+                    f"You are helping translate a manga/anime titled '{manga_title}'.\n\n"
+                    f"Below is information from wiki pages about this work:\n\n"
+                    f"{wiki_content}\n\n"
+                    f"Based on this information, create a concise terminology reference (under 400 words) including:\n"
+                    f"1. **Character Names**: Original names and their Chinese translations\n"
+                    f"   - Format: 'OriginalName (原文)' → 'ChineseName (中文)'\n"
+                    f"   - Example: '火影様 (Hokage-sama)' → '火影大人' (keep as complete unit, don't split)\n"
+                    f"2. **Titles & Ranks**: Special titles, positions, honorifics\n"
+                    f"3. **Key Terms**: Unique terminology, abilities, locations specific to this series\n"
+                    f"4. **Translation Notes**: Important conventions for this work\n\n"
+                    f"Focus on information that helps maintain consistency and accuracy in translation."
+                )
+            else:
+                # Fallback to AI's knowledge if no wiki content found
+                search_prompt = (
+                    f"You are helping translate a manga/anime titled '{manga_title}'.\n\n"
+                    f"Based on your knowledge, provide a concise reference guide (under 300 words) including:\n"
+                    f"1. **Main Characters**: Names in original language and common translations\n"
+                    f"   - Example: '火影様' (Hokage-sama) should be translated as '火影大人' (not split into parts)\n"
+                    f"2. **Key Terminology**: Titles, ranks, special terms specific to this series\n"
+                    f"3. **Translation Conventions**: How character names and terms are typically translated\n"
+                    f"4. **Important Context**: Any cultural or story-specific information helpful for translation\n\n"
+                    f"If you don't know this work, simply say 'Unknown series' and provide general translation guidelines."
+                )
 
             messages = [
                 {"role": "system", "content": "You are a manga/anime translation assistant with knowledge of popular series."},
