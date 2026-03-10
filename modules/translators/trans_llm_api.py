@@ -138,6 +138,10 @@ class LLM_API_Translator(BaseTranslator):
                      "Keep the summary under 500 words. Do NOT translate the text — only analyze it.",
             "description": "Prompt template for the book context pre-analysis call.",
         },
+        "manga_title": {
+            "value": "",
+            "description": "Optional: Manga/comic title (e.g., 'Naruto', '火影忍者'). If provided, AI will use this as background context to improve translation accuracy for character names and terminology.",
+        },
     }
 
     def _setup_translator(self):
@@ -317,6 +321,10 @@ class LLM_API_Translator(BaseTranslator):
     def needs_book_context(self) -> bool:
         return self.enable_book_context
 
+    @property
+    def manga_title(self) -> str:
+        return self.get_param_value("manga_title").strip()
+
     def generate_book_context(self, pages) -> None:
         all_text_parts = []
         for page_name, blk_list in pages.items():
@@ -490,6 +498,20 @@ class LLM_API_Translator(BaseTranslator):
             model_name = model_name.split(": ", 1)[1]
 
         system_content = self.system_prompt
+
+        # Add manga title context if provided
+        if self.manga_title:
+            system_content += (
+                f"\n\n## Source Material\n"
+                f"You are translating from: {self.manga_title}\n"
+                f"IMPORTANT: Use your knowledge of this work to:\n"
+                f"1. Translate character names and titles correctly (e.g., '火影様' → '火影大人', not '影大人火影大人')\n"
+                f"2. Keep proper nouns and titles as complete units - do not split them\n"
+                f"3. Use established terminology from official translations when available\n"
+                f"4. Maintain consistency with the source material's naming conventions"
+            )
+
+        # Add book context summary if available
         if self._book_context_summary:
             system_content += (
                 "\n\n## Book Context Summary\n"
