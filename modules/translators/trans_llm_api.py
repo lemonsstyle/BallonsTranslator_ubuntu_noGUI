@@ -345,26 +345,43 @@ class LLM_API_Translator(BaseTranslator):
 
     def _load_reference_document(self) -> str:
         """Load reference document from file or config."""
+        self.logger.info("=" * 60)
+        self.logger.info("Loading reference document...")
+
         # First try to load from file path
         if self.reference_doc_path:
+            self.logger.info(f"Attempting to load from file: {self.reference_doc_path}")
             try:
                 import os
                 if os.path.exists(self.reference_doc_path):
                     with open(self.reference_doc_path, 'r', encoding='utf-8') as f:
                         content = f.read().strip()
                         if content:
-                            self.logger.info(f"Loaded reference document from: {self.reference_doc_path}")
+                            preview = content[:300] + "..." if len(content) > 300 else content
+                            self.logger.info(f"✓ Successfully loaded reference document from file")
+                            self.logger.info(f"  File: {self.reference_doc_path}")
+                            self.logger.info(f"  Size: {len(content)} characters")
+                            self.logger.info(f"  Preview:\n{preview}")
+                            self.logger.info("=" * 60)
                             return content
+                        else:
+                            self.logger.warning(f"✗ File exists but is empty: {self.reference_doc_path}")
                 else:
-                    self.logger.warning(f"Reference document file not found: {self.reference_doc_path}")
+                    self.logger.warning(f"✗ Reference document file not found: {self.reference_doc_path}")
             except Exception as e:
-                self.logger.warning(f"Failed to load reference document from file: {e}")
+                self.logger.error(f"✗ Failed to load reference document from file: {e}")
 
         # Fallback to inline reference document
         if self.reference_document:
-            self.logger.info("Using inline reference document from config")
+            preview = self.reference_document[:300] + "..." if len(self.reference_document) > 300 else self.reference_document
+            self.logger.info(f"✓ Using inline reference document from config")
+            self.logger.info(f"  Size: {len(self.reference_document)} characters")
+            self.logger.info(f"  Preview:\n{preview}")
+            self.logger.info("=" * 60)
             return self.reference_document
 
+        self.logger.warning("✗ No reference document provided (neither file path nor inline content)")
+        self.logger.info("=" * 60)
         return ""
 
     def generate_book_context(self, pages, project_dir: str = None) -> None:
@@ -373,9 +390,11 @@ class LLM_API_Translator(BaseTranslator):
         # Load reference document if provided
         reference_doc = self._load_reference_document()
         if reference_doc:
-            self.logger.info(f"Reference document loaded ({len(reference_doc)} chars)")
+            self.logger.info(f"✓ Reference document will be used for translation")
             # Store it for use in translation
             self._reference_doc = reference_doc
+        else:
+            self.logger.warning("⚠ No reference document - translation will proceed without reference")
 
         all_text_parts = []
         for page_name, blk_list in pages.items():
@@ -552,20 +571,29 @@ class LLM_API_Translator(BaseTranslator):
 
         # Add reference document if available
         if self._reference_doc:
+            ref_preview = self._reference_doc[:200] + "..." if len(self._reference_doc) > 200 else self._reference_doc
+            self.logger.info(f"✓ Reference document loaded ({len(self._reference_doc)} chars)")
+            self.logger.info(f"  Preview: {ref_preview}")
             system_content += (
                 f"\n\n## Reference Document\n"
                 f"Use the following reference information to improve translation accuracy and consistency:\n\n"
                 f"{self._reference_doc}"
             )
+        else:
+            self.logger.warning("✗ No reference document provided. Translating without reference.")
 
         # Add book context summary if available
         if self._book_context_summary:
+            self.logger.info(f"✓ Book context summary available ({len(self._book_context_summary)} chars)")
             system_content += (
                 "\n\n## Book Context Summary\n"
                 "Use the following context to maintain consistency "
                 "in character names, terminology, and tone:\n\n"
                 + self._book_context_summary
             )
+
+        # Log final system prompt length
+        self.logger.info(f"Total system prompt length: {len(system_content)} chars")
         messages = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
