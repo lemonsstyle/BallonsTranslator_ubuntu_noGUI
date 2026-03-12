@@ -1755,11 +1755,10 @@ class MainWindow(mainwindow_cls):
         reference_path = kwargs.get('reference', '')
         if reference_path:
             LOGGER.info(f'Using reference document: {reference_path}')
-            # Set reference document path in translator config
-            if hasattr(pcfg.module, 'translator_params'):
-                translator_name = pcfg.module.translator
-                if translator_name in pcfg.module.translator_params:
-                    pcfg.module.translator_params[translator_name]['reference_doc_path'] = reference_path
+            # Store reference path for later use
+            self.reference_doc_path = reference_path
+        else:
+            self.reference_doc_path = None
 
         self.run_next_dir()
 

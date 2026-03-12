@@ -384,8 +384,14 @@ class LLM_API_Translator(BaseTranslator):
         self.logger.info("=" * 60)
         return ""
 
-    def generate_book_context(self, pages, project_dir: str = None) -> None:
+    def generate_book_context(self, pages, project_dir: str = None, reference_doc_path: str = None) -> None:
         """Generate book context from OCR text and optionally use reference document."""
+
+        # Override reference_doc_path if provided as parameter
+        if reference_doc_path:
+            self.logger.info(f"Using reference document from command line: {reference_doc_path}")
+            # Temporarily override the config value
+            self.params['reference_doc_path'] = reference_doc_path
 
         # Load reference document if provided
         reference_doc = self._load_reference_document()

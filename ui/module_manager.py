@@ -542,7 +542,15 @@ class ImgtransThread(QThread):
             if needs_book_context:
                 try:
                     LOGGER.info('Generating book context summary from OCR text...')
-                    self.translator.generate_book_context(self.imgtrans_proj.pages, self.imgtrans_proj.directory)
+                    # Get reference document path from mainwindow if available
+                    reference_path = None
+                    if hasattr(self.parent(), 'reference_doc_path'):
+                        reference_path = self.parent().reference_doc_path
+                    self.translator.generate_book_context(
+                        self.imgtrans_proj.pages,
+                        self.imgtrans_proj.directory,
+                        reference_doc_path=reference_path
+                    )
                     LOGGER.info('Book context summary generated.')
                 except Exception as e:
                     LOGGER.error(f'Failed to generate book context: {e}')
