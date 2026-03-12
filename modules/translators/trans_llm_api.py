@@ -138,30 +138,14 @@ class LLM_API_Translator(BaseTranslator):
                      "Keep the summary under 500 words. Do NOT translate the text — only analyze it.",
             "description": "Prompt template for the book context pre-analysis call.",
         },
-        "manga_title": {
+        "reference_document": {
+            "type": "editor",
             "value": "",
-            "description": "Optional: Manga/comic title (e.g., 'Naruto', '火影忍者'). Leave empty to auto-extract from folder name. AI will search online for character names and terminology to improve translation accuracy.",
+            "description": "Optional: Reference document for translation (e.g., character names, terminology glossary, style guide). Provide any background information, glossary, or translation guidelines. AI will use this to improve translation accuracy and consistency.",
         },
-        "enable_web_search": {
-            "value": True,
-            "description": "Enable searching wiki pages (萌娘百科, 百度百科, Wikipedia) for manga background information to improve translation quality.",
-        },
-        "search_engine": {
-            "value": "google",
-            "options": ["google", "bing", "none"],
-            "description": "Search engine to use for finding wiki pages. 'google' is recommended. Set to 'none' to use AI knowledge only.",
-        },
-        "google_api_key": {
+        "reference_doc_path": {
             "value": "",
-            "description": "Google Custom Search API key. Get free tier (100 queries/day) at https://developers.google.com/custom-search/v1/overview",
-        },
-        "google_search_engine_id": {
-            "value": "",
-            "description": "Google Custom Search Engine ID (CX). Create at https://programmablesearchengine.google.com/",
-        },
-        "bing_search_key": {
-            "value": "",
-            "description": "Bing Search API key (optional, if using Bing). Get free tier at https://www.microsoft.com/en-us/bing/apis/bing-web-search-api",
+            "description": "Optional: Path to a reference document file (.txt, .md). If provided, the file content will be loaded and used as reference. Leave empty to use the 'reference_document' field above.",
         },
     }
 
@@ -200,7 +184,7 @@ class LLM_API_Translator(BaseTranslator):
         self.key_usage = {}
         self.client = None
         self._book_context_summary: str = ""
-        self._manga_info: str = ""
+        self._reference_doc: str = ""
 
     def _initialize_client(self, api_key_to_use: str) -> bool:
         endpoint = self.endpoint
@@ -344,235 +328,46 @@ class LLM_API_Translator(BaseTranslator):
         return self.enable_book_context
 
     @property
-    def manga_title(self) -> str:
-        return self.get_param_value("manga_title").strip()
+    def reference_document(self) -> str:
+        return self.get_param_value("reference_document").strip()
 
     @property
-    def enable_web_search(self) -> bool:
-        return bool(self.get_param_value("enable_web_search"))
+    def reference_doc_path(self) -> str:
+        return self.get_param_value("reference_doc_path").strip()
 
-    @property
-    def search_engine(self) -> str:
-        return self.get_param_value("search_engine")
+    def _load_reference_document(self) -> str:
+        """Load reference document from file or config."""
+        # First try to load from file path
+        if self.reference_doc_path:
+            try:
+                import os
+                if os.path.exists(self.reference_doc_path):
+                    with open(self.reference_doc_path, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if content:
+                            self.logger.info(f"Loaded reference document from: {self.reference_doc_path}")
+                            return content
+                else:
+                    self.logger.warning(f"Reference document file not found: {self.reference_doc_path}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load reference document from file: {e}")
 
-    @property
-    def google_api_key(self) -> str:
-        return self.get_param_value("google_api_key").strip()
+        # Fallback to inline reference document
+        if self.reference_document:
+            self.logger.info("Using inline reference document from config")
+            return self.reference_document
 
-    @property
-    def google_search_engine_id(self) -> str:
-        return self.get_param_value("google_search_engine_id").strip()
-
-    @property
-    def bing_search_key(self) -> str:
-        return self.get_param_value("bing_search_key").strip()
-
-    def _extract_manga_title_from_path(self, project_dir: str) -> str:
-        """Extract manga title from project directory path."""
-        import os
-        import re
-
-        # Get the last directory name
-        dir_name = os.path.basename(project_dir.rstrip('/'))
-
-        # Remove common patterns like chapter numbers, volume numbers
-        # Examples: "火影忍者_第1话" -> "火影忍者", "Naruto Vol 1" -> "Naruto"
-        patterns = [
-            r'[_\s]*第?\d+[话話集卷].*$',  # Remove chapter/volume numbers (Chinese)
-            r'[_\s]*Vol\.?\s*\d+.*$',       # Remove "Vol 1", "Vol.1"
-            r'[_\s]*Chapter\s*\d+.*$',      # Remove "Chapter 1"
-            r'[_\s]*Ch\.?\s*\d+.*$',        # Remove "Ch 1", "Ch.1"
-            r'[_\s]*\d+$',                  # Remove trailing numbers
-        ]
-
-        title = dir_name
-        for pattern in patterns:
-            title = re.sub(pattern, '', title, flags=re.IGNORECASE)
-
-        return title.strip()
-
-    def _search_wiki_pages(self, manga_title: str) -> str:
-        """Search for wiki pages about the manga and extract content."""
-        if not manga_title:
-            return ""
-
-        # Priority: Chinese wikis (萌娘百科, 百度百科) > Wikipedia
-        search_queries = [
-            f"{manga_title} 萌娘百科",
-            f"{manga_title} 百度百科",
-            f"{manga_title} 角色 wiki",
-            f"{manga_title} wikipedia",
-        ]
-
-        wiki_content = []
-        import requests
-
-        if self.search_engine == "google" and self.google_api_key and self.google_search_engine_id:
-            # Use Google Custom Search API
-            for query in search_queries[:2]:  # Only search first 2 to save API calls
-                try:
-                    params = {
-                        "key": self.google_api_key,
-                        "cx": self.google_search_engine_id,
-                        "q": query,
-                        "num": 3,
-                        "lr": "lang_zh-CN|lang_zh-TW|lang_ja",  # Prefer Chinese and Japanese results
-                    }
-                    response = requests.get(
-                        "https://www.googleapis.com/customsearch/v1",
-                        params=params,
-                        timeout=10
-                    )
-
-                    if response.status_code == 200:
-                        results = response.json()
-                        for item in results.get("items", [])[:2]:
-                            url = item.get("link", "")
-                            snippet = item.get("snippet", "")
-                            title = item.get("title", "")
-
-                            # Check if it's a wiki page
-                            if any(wiki in url.lower() for wiki in ["moegirl", "baike.baidu", "wikipedia", "fandom", "wikia"]):
-                                wiki_content.append(f"Source: {title}\nURL: {url}\n{snippet}")
-                                self.logger.info(f"Found wiki page: {url}")
-
-                    if wiki_content:
-                        break  # Found content, no need to continue
-
-                except Exception as e:
-                    self.logger.warning(f"Google search failed for '{query}': {e}")
-                    continue
-
-        elif self.search_engine == "bing" and self.bing_search_key:
-            # Use Bing Search API
-            for query in search_queries[:2]:  # Only search first 2 to save API calls
-                try:
-                    headers = {"Ocp-Apim-Subscription-Key": self.bing_search_key}
-                    params = {"q": query, "count": 3, "mkt": "zh-CN"}
-                    response = requests.get(
-                        "https://api.bing.microsoft.com/v7.0/search",
-                        headers=headers,
-                        params=params,
-                        timeout=10
-                    )
-
-                    if response.status_code == 200:
-                        results = response.json()
-                        for item in results.get("webPages", {}).get("value", [])[:2]:
-                            url = item.get("url", "")
-                            snippet = item.get("snippet", "")
-
-                            # Check if it's a wiki page
-                            if any(wiki in url.lower() for wiki in ["moegirl", "baike.baidu", "wikipedia"]):
-                                wiki_content.append(f"Source: {url}\n{snippet}")
-                                self.logger.info(f"Found wiki page: {url}")
-
-                    if wiki_content:
-                        break  # Found content, no need to continue
-
-                except Exception as e:
-                    self.logger.warning(f"Bing search failed for '{query}': {e}")
-                    continue
-
-        return "\n\n".join(wiki_content) if wiki_content else ""
-
-    def _search_manga_info(self, manga_title: str) -> str:
-        """Search for manga info and extract terminology using LLM."""
-        if not manga_title:
-            return ""
-
-        try:
-            # First, try to get wiki content via search API
-            wiki_content = ""
-            if self.search_engine != "none":
-                wiki_content = self._search_wiki_pages(manga_title)
-
-            current_api_key = self._select_api_key()
-            if not current_api_key:
-                self.logger.warning("No API key available for manga info extraction.")
-                return ""
-
-            if not self._initialize_client(current_api_key):
-                self.logger.warning("Failed to initialize client for manga info extraction.")
-                return ""
-
-            self._respect_delay()
-
-            model_name = self.override_model or self.model
-            if ": " in model_name:
-                model_name = model_name.split(": ", 1)[1]
-
-            # Build prompt based on whether we have wiki content
-            if wiki_content:
-                search_prompt = (
-                    f"You are helping translate a manga/anime titled '{manga_title}'.\n\n"
-                    f"Below is information from wiki pages about this work:\n\n"
-                    f"{wiki_content}\n\n"
-                    f"Based on this information, create a concise terminology reference (under 400 words) including:\n"
-                    f"1. **Character Names**: Original names and their Chinese translations\n"
-                    f"   - Format: 'OriginalName (原文)' → 'ChineseName (中文)'\n"
-                    f"   - Example: '火影様 (Hokage-sama)' → '火影大人' (keep as complete unit, don't split)\n"
-                    f"2. **Titles & Ranks**: Special titles, positions, honorifics\n"
-                    f"3. **Key Terms**: Unique terminology, abilities, locations specific to this series\n"
-                    f"4. **Translation Notes**: Important conventions for this work\n\n"
-                    f"Focus on information that helps maintain consistency and accuracy in translation."
-                )
-            else:
-                # Fallback to AI's knowledge if no wiki content found
-                search_prompt = (
-                    f"You are helping translate a manga/anime titled '{manga_title}'.\n\n"
-                    f"Based on your knowledge, provide a concise reference guide (under 300 words) including:\n"
-                    f"1. **Main Characters**: Names in original language and common translations\n"
-                    f"   - Example: '火影様' (Hokage-sama) should be translated as '火影大人' (not split into parts)\n"
-                    f"2. **Key Terminology**: Titles, ranks, special terms specific to this series\n"
-                    f"3. **Translation Conventions**: How character names and terms are typically translated\n"
-                    f"4. **Important Context**: Any cultural or story-specific information helpful for translation\n\n"
-                    f"If you don't know this work, simply say 'Unknown series' and provide general translation guidelines."
-                )
-
-            messages = [
-                {"role": "system", "content": "You are a manga/anime translation assistant with knowledge of popular series."},
-                {"role": "user", "content": search_prompt},
-            ]
-
-            completion = self.client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=0.3,
-                max_tokens=500,
-            )
-
-            if completion.choices and completion.choices[0].message and completion.choices[0].message.content:
-                info = completion.choices[0].message.content.strip()
-                self.logger.info(f"Manga info generated for '{manga_title}' ({len(info)} chars)")
-                return info
-            else:
-                self.logger.warning("Empty response from manga info search.")
-                return ""
-
-        except Exception as e:
-            self.logger.warning(f"Failed to search manga info: {e}")
-            return ""
+        return ""
 
     def generate_book_context(self, pages, project_dir: str = None) -> None:
-        """Generate book context from OCR text and optionally search for manga info."""
+        """Generate book context from OCR text and optionally use reference document."""
 
-        # Try to extract and search manga title if enabled
-        manga_info = ""
-        if self.enable_web_search and project_dir:
-            # Extract manga title from project directory
-            extracted_title = self._extract_manga_title_from_path(project_dir)
-
-            # Use configured title if available, otherwise use extracted title
-            title_to_search = self.manga_title or extracted_title
-
-            if title_to_search:
-                self.logger.info(f"Searching for manga info: '{title_to_search}'")
-                manga_info = self._search_manga_info(title_to_search)
-                if manga_info and "Unknown series" not in manga_info:
-                    self.logger.info(f"Manga info found for '{title_to_search}'")
-                    # Store it for use in translation
-                    self._manga_info = manga_info
+        # Load reference document if provided
+        reference_doc = self._load_reference_document()
+        if reference_doc:
+            self.logger.info(f"Reference document loaded ({len(reference_doc)} chars)")
+            # Store it for use in translation
+            self._reference_doc = reference_doc
 
         all_text_parts = []
         for page_name, blk_list in pages.items():
@@ -747,23 +542,12 @@ class LLM_API_Translator(BaseTranslator):
 
         system_content = self.system_prompt
 
-        # Add manga info from web search if available
-        if self._manga_info:
+        # Add reference document if available
+        if self._reference_doc:
             system_content += (
-                f"\n\n## Manga/Anime Background Information\n"
-                f"{self._manga_info}"
-            )
-
-        # Add manga title context if manually provided
-        if self.manga_title:
-            system_content += (
-                f"\n\n## Source Material\n"
-                f"You are translating from: {self.manga_title}\n"
-                f"IMPORTANT: Use your knowledge of this work to:\n"
-                f"1. Translate character names and titles correctly (e.g., '火影様' → '火影大人', not '影大人火影大人')\n"
-                f"2. Keep proper nouns and titles as complete units - do not split them\n"
-                f"3. Use established terminology from official translations when available\n"
-                f"4. Maintain consistency with the source material's naming conventions"
+                f"\n\n## Reference Document\n"
+                f"Use the following reference information to improve translation accuracy and consistency:\n\n"
+                f"{self._reference_doc}"
             )
 
         # Add book context summary if available
