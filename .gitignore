@@ -67,4 +67,6 @@ data/*
 
 # Ignore test/working directories
 ces/
+hyrz/
+hy.tar.gz
 .ipynb_checkpoints/
