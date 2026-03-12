@@ -81,8 +81,12 @@ class LLM_API_Translator(BaseTranslator):
             "description": "System message to instruct the LLM on its role and required output format.",
         },
         "invalid repeat count": {
-            "value": 2,
-            "description": "Number of retries if the count of translations mismatches the source count.",
+            "value": 5,
+            "description": "Number of retries if the count of translations mismatches the source count. Increased to handle AI inconsistency.",
+        },
+        "batch_size": {
+            "value": 50,
+            "description": "Number of text snippets to translate in one batch. Smaller batches reduce AI errors but increase API calls. Recommended: 30-50.",
         },
         "max requests per minute": {
             "value": 20,
@@ -300,6 +304,10 @@ class LLM_API_Translator(BaseTranslator):
         return int(self.get_param_value("invalid repeat count"))
 
     @property
+    def batch_size(self) -> int:
+        return int(self.get_param_value("batch_size"))
+
+    @property
     def frequency_penalty(self) -> float:
         return float(self.get_param_value("frequency penalty"))
 
@@ -423,7 +431,7 @@ class LLM_API_Translator(BaseTranslator):
 
     def _assemble_prompts(self, queries: List[str], to_lang: str):
         from_lang = self.lang_map.get(self.lang_source, self.lang_source)
-        batch_size = 50
+        batch_size = self.batch_size
 
         for batch_start in range(0, len(queries), batch_size):
             batch = queries[batch_start:batch_start + batch_size]
