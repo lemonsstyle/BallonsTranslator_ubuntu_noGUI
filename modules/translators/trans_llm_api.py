@@ -147,13 +147,21 @@ class LLM_API_Translator(BaseTranslator):
             "description": "Enable searching wiki pages (萌娘百科, 百度百科, Wikipedia) for manga background information to improve translation quality.",
         },
         "search_engine": {
-            "value": "bing",
-            "options": ["bing", "google", "none"],
-            "description": "Search engine to use for finding wiki pages. 'bing' is recommended (free tier available). Set to 'none' to use AI knowledge only.",
+            "value": "google",
+            "options": ["google", "bing", "none"],
+            "description": "Search engine to use for finding wiki pages. 'google' is recommended. Set to 'none' to use AI knowledge only.",
+        },
+        "google_api_key": {
+            "value": "",
+            "description": "Google Custom Search API key. Get free tier (100 queries/day) at https://developers.google.com/custom-search/v1/overview",
+        },
+        "google_search_engine_id": {
+            "value": "",
+            "description": "Google Custom Search Engine ID (CX). Create at https://programmablesearchengine.google.com/",
         },
         "bing_search_key": {
             "value": "",
-            "description": "Bing Search API key (optional). Get free tier at https://www.microsoft.com/en-us/bing/apis/bing-web-search-api",
+            "description": "Bing Search API key (optional, if using Bing). Get free tier at https://www.microsoft.com/en-us/bing/apis/bing-web-search-api",
         },
     }
 
@@ -348,6 +356,14 @@ class LLM_API_Translator(BaseTranslator):
         return self.get_param_value("search_engine")
 
     @property
+    def google_api_key(self) -> str:
+        return self.get_param_value("google_api_key").strip()
+
+    @property
+    def google_search_engine_id(self) -> str:
+        return self.get_param_value("google_search_engine_id").strip()
+
+    @property
     def bing_search_key(self) -> str:
         return self.get_param_value("bing_search_key").strip()
 
@@ -389,11 +405,46 @@ class LLM_API_Translator(BaseTranslator):
         ]
 
         wiki_content = []
+        import requests
 
-        if self.search_engine == "bing" and self.bing_search_key:
+        if self.search_engine == "google" and self.google_api_key and self.google_search_engine_id:
+            # Use Google Custom Search API
+            for query in search_queries[:2]:  # Only search first 2 to save API calls
+                try:
+                    params = {
+                        "key": self.google_api_key,
+                        "cx": self.google_search_engine_id,
+                        "q": query,
+                        "num": 3,
+                        "lr": "lang_zh-CN|lang_zh-TW|lang_ja",  # Prefer Chinese and Japanese results
+                    }
+                    response = requests.get(
+                        "https://www.googleapis.com/customsearch/v1",
+                        params=params,
+                        timeout=10
+                    )
+
+                    if response.status_code == 200:
+                        results = response.json()
+                        for item in results.get("items", [])[:2]:
+                            url = item.get("link", "")
+                            snippet = item.get("snippet", "")
+                            title = item.get("title", "")
+
+                            # Check if it's a wiki page
+                            if any(wiki in url.lower() for wiki in ["moegirl", "baike.baidu", "wikipedia", "fandom", "wikia"]):
+                                wiki_content.append(f"Source: {title}\nURL: {url}\n{snippet}")
+                                self.logger.info(f"Found wiki page: {url}")
+
+                    if wiki_content:
+                        break  # Found content, no need to continue
+
+                except Exception as e:
+                    self.logger.warning(f"Google search failed for '{query}': {e}")
+                    continue
+
+        elif self.search_engine == "bing" and self.bing_search_key:
             # Use Bing Search API
-            import requests
-
             for query in search_queries[:2]:  # Only search first 2 to save API calls
                 try:
                     headers = {"Ocp-Apim-Subscription-Key": self.bing_search_key}
