@@ -313,6 +313,11 @@ def main():
         ballontrans.setWindowIcon(QIcon(shared.ICON_PATH))
         ballontrans.show()
         ballontrans.resetStyleSheet()
+    elif sys.platform == 'darwin':
+        # macOS needs window to be shown (but can be hidden) for Qt to work properly in headless mode
+        ballontrans.setWindowIcon(QIcon(shared.ICON_PATH))
+        ballontrans.hide()  # Hide the window but keep it created
+        ballontrans.resetStyleSheet()
     sys.exit(app.exec())
 
 def is_amd_gpu():
