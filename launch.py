@@ -266,6 +266,19 @@ def main():
             for fp in fp_list:
                 fnt_idx = QFontDatabase.addApplicationFont(fp)
 
+    # macOS also needs font loading in headless mode
+    if sys.platform == 'darwin' and (args.headless or args.headless_continuous):
+        from qtpy.QtCore import QStandardPaths
+        font_dir_list = QStandardPaths.standardLocations(QStandardPaths.StandardLocation.FontsLocation)
+        for fd in font_dir_list:
+            if os.path.exists(fd):
+                fp_list = find_all_files_recursive(fd, FONT_EXTS)
+                for fp in fp_list[:50]:  # Limit to first 50 fonts to avoid slowdown
+                    try:
+                        fnt_idx = QFontDatabase.addApplicationFont(fp)
+                    except:
+                        pass
+
     if shared.FLAG_QT6:
         shared.FONT_FAMILIES = set(f for f in QFontDatabase.families())
     else:

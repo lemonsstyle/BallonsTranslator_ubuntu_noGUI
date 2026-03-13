@@ -91,7 +91,8 @@ class MainWindow(mainwindow_cls):
         self.setupShortcuts()
         self.setupRegisterWidget()
         # self.showMaximized()
-        FramelessMoveResize.toggleMaxState(self)
+        if not (shared.HEADLESS or shared.HEADLESS_CONTINUOUS):
+            FramelessMoveResize.toggleMaxState(self)
         self.setAcceptDrops(True)
 
         if open_dir != '' and osp.exists(open_dir):
@@ -105,7 +106,7 @@ class MainWindow(mainwindow_cls):
         if shared.HEADLESS or shared.HEADLESS_CONTINUOUS:
             self.run_batch(**exec_args)
 
-        if shared.ON_MACOS:
+        if shared.ON_MACOS and not (shared.HEADLESS or shared.HEADLESS_CONTINUOUS):
             # https://bugreports.qt.io/browse/QTBUG-133215
             self.hideSystemTitleBar()
             self.showMaximized()
