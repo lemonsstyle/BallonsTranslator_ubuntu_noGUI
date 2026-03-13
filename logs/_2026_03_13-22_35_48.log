@@ -1,0 +1,13 @@
+[DEBUG] ocr_paddle:<module>:14 - PaddleOCR is not installed, so the module will not be initialized. 
+Check this issue https://github.com/dmMaze/BallonsTranslator/issues/835#issuecomment-2772940806
+[INFO] launch:main:249 - set display language to zh_CN
+[WARNING] base:patch_module_params:44 - Found invalid LLM_API_Translator config: reference_document
+[WARNING] base:patch_module_params:44 - Found invalid LLM_API_Translator config: batch_size
+[WARNING] base:patch_module_params:44 - Found invalid LLM_API_Translator config: reference_doc_path
+[INFO] base:patch_module_params:50 - Found new LLM_API_Translator config: book_context_prompt
+[INFO] mainwindow:run_next_dir:1792 - translating ces/ ...
+[INFO] module_manager:_imgtrans_pipeline:405 - Processing all 3 pages
+[INFO] mainwindow:on_finish_setdetector:276 - Text detector set to ctd
+[INFO] mainwindow:on_finish_setinpainter:294 - Inpainter set to lama_large_512px
+[INFO] mainwindow:on_finish_setocr:285 - OCR set to mit48px
+[INFO] mainwindow:on_finish_settranslator:304 - Translator set to LLM_API_Translator

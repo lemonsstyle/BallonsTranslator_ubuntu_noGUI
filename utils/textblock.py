@@ -303,10 +303,21 @@ class TextBlock:
         xyxy = np.array(self.xyxy)
         return (xyxy[:2] + xyxy[2:]) / 2
 
+    def _bbox_polygon(self) -> np.ndarray:
+        x1, y1, x2, y2 = [int(v) for v in self.xyxy]
+        if x1 > x2:
+            x1, x2 = x2, x1
+        if y1 > y2:
+            y1, y2 = y2, y1
+        return np.array([[x1, y1, x2, y1, x2, y2, x1, y2]], dtype=np.float64)
+
     def unrotated_polygons(self, ids=None) -> np.ndarray:
         angled = self.angle != 0
         center = self.center()
-        polygons = self.lines_array().reshape(-1, 8)
+        try:
+            polygons = self.lines_array().reshape(-1, 8)
+        except Exception:
+            polygons = np.empty((0, 8), dtype=np.float64)
         if ids is not None:
             polygons = polygons[ids]
         if angled:
@@ -315,6 +326,8 @@ class TextBlock:
     
     def min_rect(self, rotate_back=True, ids=None) -> List[int]:
         angled, center, polygons = self.unrotated_polygons(ids=ids)
+        if polygons.size == 0:
+            return self._bbox_polygon().reshape(-1, 4, 2).astype(np.int64)
         min_x = polygons[:, ::2].min()
         min_y = polygons[:, 1::2].min()
         max_x = polygons[:, ::2].max()

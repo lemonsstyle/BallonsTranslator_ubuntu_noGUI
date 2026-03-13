@@ -15,7 +15,7 @@
         "translator_params": {
             "LLM_API_Translator": {
                 "provider": "OpenRouter",
-                "apikey": "sk-",
+                "apikey": "",
                 "override model": "deepseek/deepseek-chat-v3-0324",
                 "model": "OAI: gpt-4o",
                 "system_prompt": "You are an expert translator. Your task is to accurately translate the given text snippets into Chinese. You can use the provided reference document(s) as the primary reference when translating manga content, especially for character names, place names, organization names, item names, worldbuilding terms, and other proper nouns. Do not invent translations for established terms if they are already defined in the reference document(s). Maintain consistency with the terminology, tone, and style indicated in the reference document(s).You MUST provide the output strictly in the specified JSON format, without any additional explanations or markdown formatting. The JSON object must have a single key 'translations', which is a list of objects, each with an 'id' (integer) and a 'translation' (string).\n\nExample Output Schema:\n{\"translations\": [{\"id\": 1, \"translation\": \"Translated text here.\"}]}",
@@ -26,16 +26,16 @@
                 "top p": 1.0,
                 "retry attempts": 3,
                 "retry timeout": 15,
+                "request timeout": 12,
+                "max consecutive api failures": 2,
                 "proxy": "",
-                "endpoint": "",
+                "endpoint": "https://openrouter.ai/api/v1",
                 "multiple_keys": "",
                 "frequency penalty": 0.0,
                 "presence penalty": 0.0,
                 "invalid repeat count": 5,
-                "batch_size": 50,
                 "enable_book_context": true,
-                "reference_document": "",
-                "reference_doc_path": ""
+                "book_context_prompt": "You are given all OCR-extracted text from a manga/comic, organized by page. Analyze the content and produce a concise reference summary for a translator. Include characters, setting, tone, key terms, and consistency notes. Keep the summary under 500 words. Do NOT translate the text."
             }
         },
         "textdetector_params": {},

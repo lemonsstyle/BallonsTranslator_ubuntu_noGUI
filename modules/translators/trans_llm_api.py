@@ -112,6 +112,14 @@ class LLM_API_Translator(BaseTranslator):
             "value": 15,
             "description": "Timeout between retry attempts (seconds).",
         },
+        "request timeout": {
+            "value": 12,
+            "description": "Per-request API timeout in seconds.",
+        },
+        "max consecutive api failures": {
+            "value": 2,
+            "description": "Open a fail-fast circuit after this many failed translation batches.",
+        },
         "proxy": {
             "value": "",
             "description": "Proxy address (e.g., http(s)://user:password@host:port or socks4/5://user:password@host:port)",
@@ -175,6 +183,8 @@ class LLM_API_Translator(BaseTranslator):
         self.key_usage = {}
         self.client = None
         self._book_context_summary: str = ""
+        self._consecutive_api_failures = 0
+        self._api_failure_circuit_open = False
 
     def _initialize_client(self, api_key_to_use: str) -> bool:
         endpoint = self.endpoint
@@ -190,6 +200,7 @@ class LLM_API_Translator(BaseTranslator):
                 endpoint = "https://api.x.ai/v1"
 
         proxy = self.proxy
+        timeout = self.request_timeout
         http_client = None
         if proxy:
             try:
@@ -197,14 +208,14 @@ class LLM_API_Translator(BaseTranslator):
                     "http://": httpx.HTTPTransport(proxy=proxy),
                     "https://": httpx.HTTPTransport(proxy=proxy),
                 }
-                http_client = httpx.Client(mounts=proxy_mounts)
+                http_client = httpx.Client(mounts=proxy_mounts, timeout=timeout)
             except Exception as e:
                 self.logger.error(
                     f"Failed to initialize proxy '{proxy}': {e}. Proceeding without proxy."
                 )
-                http_client = httpx.Client()
+                http_client = httpx.Client(timeout=timeout)
         else:
-            http_client = httpx.Client()
+            http_client = httpx.Client(timeout=timeout)
 
         masked_key = (
             api_key_to_use[:4] + "..." + api_key_to_use[-4:]
@@ -276,6 +287,14 @@ class LLM_API_Translator(BaseTranslator):
     @property
     def retry_timeout(self) -> int:
         return int(self.get_param_value("retry timeout"))
+
+    @property
+    def request_timeout(self) -> float:
+        return float(self.get_param_value("request timeout"))
+
+    @property
+    def max_consecutive_api_failures(self) -> int:
+        return max(1, int(self.get_param_value("max consecutive api failures")))
 
     @property
     def proxy(self) -> str:
@@ -361,6 +380,7 @@ class LLM_API_Translator(BaseTranslator):
                 messages=messages,
                 temperature=0.3,
                 max_tokens=self.max_tokens,
+                timeout=self.request_timeout,
             )
             if completion.choices and completion.choices[0].message and completion.choices[0].message.content:
                 self._book_context_summary = completion.choices[0].message.content.strip()
@@ -525,7 +545,10 @@ class LLM_API_Translator(BaseTranslator):
             api_args["presence_penalty"] = self.presence_penalty
 
         try:
-            completion = self.client.chat.completions.create(**api_args)
+            completion = self.client.chat.completions.create(
+                **api_args,
+                timeout=self.request_timeout,
+            )
         except Exception as e:
             self.logger.error(f"API request failed: {e}")
             raise
@@ -608,6 +631,11 @@ class LLM_API_Translator(BaseTranslator):
     def _translate(self, src_list: List[str]) -> List[str]:
         if not src_list:
             return []
+        if self._api_failure_circuit_open:
+            self.logger.warning(
+                "Skip translation batch because API fail-fast circuit is open."
+            )
+            return ["[ERROR: API Unavailable]"] * len(src_list)
 
         RETRYABLE_EXCEPTIONS = (
             openai.RateLimitError,
@@ -616,6 +644,7 @@ class LLM_API_Translator(BaseTranslator):
             openai.InternalServerError,
             openai.APIStatusError,
             httpx.RequestError,
+            ConnectionError,
         )
 
         translations = []
@@ -648,6 +677,8 @@ class LLM_API_Translator(BaseTranslator):
                     ]
 
                     translations.extend(ordered_translations)
+                    self._consecutive_api_failures = 0
+                    self._api_failure_circuit_open = False
                     self.logger.info(
                         f"Successfully translated batch of {num_src}. Tokens used: {self.token_count_last}"
                     )
@@ -672,12 +703,33 @@ class LLM_API_Translator(BaseTranslator):
                         f"API Error (retryable): {type(e).__name__} - {e}. Attempt {api_retry_attempt}/{self.retry_attempts}."
                     )
                     if api_retry_attempt >= self.retry_attempts:
+                        self._consecutive_api_failures += 1
                         self.logger.error(
                             f"Fatal Error: Failed to connect to API after {self.retry_attempts} attempts."
                         )
+                        if (
+                            self._consecutive_api_failures
+                            >= self.max_consecutive_api_failures
+                        ):
+                            self._api_failure_circuit_open = True
+                            self.logger.error(
+                                "Opening API fail-fast circuit after consecutive failures. "
+                                "Remaining pages will be skipped quickly."
+                            )
                         translations.extend([f"[ERROR: API Failed]"] * num_src)
                         break
-                    time.sleep(self.retry_timeout)
+                    wait_time = self.retry_timeout
+                    if isinstance(
+                        e,
+                        (
+                            openai.APIConnectionError,
+                            openai.APITimeoutError,
+                            httpx.RequestError,
+                            ConnectionError,
+                        ),
+                    ):
+                        wait_time = min(wait_time, 3)
+                    time.sleep(wait_time)
 
                 except (
                     ValidationError,

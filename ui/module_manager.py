@@ -421,18 +421,21 @@ class ImgtransThread(QThread):
         if self.parallel_trans and cfg_module.enable_translate:
             self.translate_thread.runTranslatePipeline(self.imgtrans_proj)
 
-        for imgname in pages_to_iterate:
+        for page_pos, imgname in enumerate(pages_to_iterate, start=1):
             
             # 检查是否请求停止
             if self.stop_requested:
                 LOGGER.info('Image translation pipeline stopped by user')
                 break
+            page_t0 = time.perf_counter()
+            LOGGER.info(f'[pipeline] page {page_pos}/{num_pages} start: {imgname}')
                 
             img = self.imgtrans_proj.read_img(imgname)
             mask = blk_list = None
             need_save_mask = False
             blk_removed: List[TextBlock] = []
             if cfg_module.enable_detect:
+                detect_t0 = time.perf_counter()
                 try:
                     mask, blk_list = self.textdetector.detect(img, self.imgtrans_proj)
                     need_save_mask = True
@@ -454,11 +457,16 @@ class ImgtransThread(QThread):
                     
                 self.imgtrans_proj.update_page_progress(imgname, RunStatus.FIN_DET)
                 self.update_detect_progress.emit(self.detect_counter)
+                LOGGER.info(
+                    f'[pipeline] page {page_pos}/{num_pages} detect done in '
+                    f'{time.perf_counter() - detect_t0:.2f}s, blks={len(blk_list)}'
+                )
 
             if blk_list is None:
                 blk_list = self.imgtrans_proj.pages[imgname] if imgname in self.imgtrans_proj.pages else []
 
             if cfg_module.enable_ocr:
+                ocr_t0 = time.perf_counter()
                 try:
                     self.ocr.run_ocr(img, blk_list)
                 except Exception as e:
@@ -502,20 +510,30 @@ class ImgtransThread(QThread):
 
                 self.imgtrans_proj.update_page_progress(imgname, RunStatus.FIN_OCR)
                 self.update_ocr_progress.emit(self.ocr_counter)
+                LOGGER.info(
+                    f'[pipeline] page {page_pos}/{num_pages} ocr done in '
+                    f'{time.perf_counter() - ocr_t0:.2f}s'
+                )
 
             if need_save_mask and mask is not None:
                 self.imgtrans_proj.save_mask(imgname, mask)
                 need_save_mask = False
 
             if cfg_module.enable_translate:
+                translate_t0 = time.perf_counter()
                 if self.parallel_trans:
                     self.translate_thread.push_pagekey_queue(imgname)
                 elif not low_vram_trans and not needs_book_context:
                     self.translator.translate_textblk_lst(blk_list)
                     self.translate_counter += 1
                     self.update_translate_progress.emit(self.translate_counter)
+                LOGGER.info(
+                    f'[pipeline] page {page_pos}/{num_pages} translate dispatch done in '
+                    f'{time.perf_counter() - translate_t0:.2f}s (parallel={self.parallel_trans})'
+                )
                         
             if cfg_module.enable_inpaint:
+                inpaint_t0 = time.perf_counter()
                 if mask is None:
                     mask = self.imgtrans_proj.load_mask_by_imgname(imgname)
                     
@@ -529,9 +547,17 @@ class ImgtransThread(QThread):
                 self.inpaint_counter += 1
                 self.imgtrans_proj.update_page_progress(imgname, RunStatus.FIN_INPAINT)
                 self.update_inpaint_progress.emit(self.inpaint_counter)
+                LOGGER.info(
+                    f'[pipeline] page {page_pos}/{num_pages} inpaint done in '
+                    f'{time.perf_counter() - inpaint_t0:.2f}s'
+                )
             else:
                 if len(blk_removed) > 0:
                     self.imgtrans_proj.load_mask_by_imgname
+            LOGGER.info(
+                f'[pipeline] page {page_pos}/{num_pages} finished in '
+                f'{time.perf_counter() - page_t0:.2f}s: {imgname}'
+            )
         
         deferred_translate = low_vram_trans or needs_book_context
 

@@ -1,0 +1,77 @@
+[DEBUG] ocr_paddle:<module>:14 - PaddleOCR is not installed, so the module will not be initialized. 
+Check this issue https://github.com/dmMaze/BallonsTranslator/issues/835#issuecomment-2772940806
+[INFO] launch:main:263 - set display language to zh_CN
+[INFO] mainwindow:run_next_dir:1792 - translating ces/ ...
+[INFO] module_manager:_imgtrans_pipeline:405 - Processing all 3 pages
+[INFO] module_manager:_imgtrans_pipeline:431 - [pipeline] page 1/3 start: 1(Mac).png
+[INFO] mainwindow:on_finish_settranslator:304 - Translator set to LLM_API_Translator
+[INFO] mainwindow:on_finish_setinpainter:294 - Inpainter set to opencv-tela
+[INFO] mainwindow:on_finish_setocr:285 - OCR set to mit48px
+[INFO] mainwindow:on_finish_setdetector:276 - Text detector set to ctd
+[INFO] module_manager:_imgtrans_pipeline:460 - [pipeline] page 1/3 detect done in 0.78s, blks=7
+[INFO] module_manager:_imgtrans_pipeline:513 - [pipeline] page 1/3 ocr done in 2.07s
+[INFO] module_manager:_imgtrans_pipeline:530 - [pipeline] page 1/3 translate dispatch done in 0.00s (parallel=False)
+[INFO] module_manager:_imgtrans_pipeline:550 - [pipeline] page 1/3 inpaint done in 0.03s
+[INFO] module_manager:_imgtrans_pipeline:557 - [pipeline] page 1/3 finished in 3.02s: 1(Mac).png
+[INFO] module_manager:_imgtrans_pipeline:431 - [pipeline] page 2/3 start: 2(Mac).png
+[INFO] module_manager:_imgtrans_pipeline:460 - [pipeline] page 2/3 detect done in 0.37s, blks=8
+[INFO] module_manager:_imgtrans_pipeline:513 - [pipeline] page 2/3 ocr done in 0.96s
+[INFO] module_manager:_imgtrans_pipeline:530 - [pipeline] page 2/3 translate dispatch done in 0.00s (parallel=False)
+[INFO] module_manager:_imgtrans_pipeline:550 - [pipeline] page 2/3 inpaint done in 0.04s
+[INFO] module_manager:_imgtrans_pipeline:557 - [pipeline] page 2/3 finished in 1.40s: 2(Mac).png
+[INFO] module_manager:_imgtrans_pipeline:431 - [pipeline] page 3/3 start: 3.png
+[INFO] module_manager:_imgtrans_pipeline:460 - [pipeline] page 3/3 detect done in 0.69s, blks=11
+[INFO] module_manager:_imgtrans_pipeline:513 - [pipeline] page 3/3 ocr done in 2.15s
+[INFO] module_manager:_imgtrans_pipeline:530 - [pipeline] page 3/3 translate dispatch done in 0.00s (parallel=False)
+[INFO] module_manager:_imgtrans_pipeline:550 - [pipeline] page 3/3 inpaint done in 0.05s
+[INFO] module_manager:_imgtrans_pipeline:557 - [pipeline] page 3/3 finished in 2.91s: 3.png
+[INFO] module_manager:_imgtrans_pipeline:570 - Generating book context summary from OCR text...
+[DEBUG] trans_llm_api:_initialize_client:225 - Initializing client for OpenRouter with key sk-o...bd17 at endpoint https://openrouter.ai/api/v1
+[INFO] trans_llm_api:generate_book_context:387 - Book context summary generated (1502 chars):
+**Manga Translation Reference Summary**  
+
+**Characters:**  
+- A magic user/researcher (Page 1) discussing experimental magic effects on humans.  
+- Formal business representative (Page 2: "秋本" from "株式会社ＮーＡー").  
+- Panicked individual(s) (Page 3), possibly confronting someone attempting a reckless act ("飛び降りたって痛いだけだぞ！").  
+- Mention of "ビヨンド" (possibly a name/title, e.g., "勇者" [hero]).  
+
+**Setting:**  
+- Page 1: A magical/research context with focus on untested spells and mental effects ("精神を震わせる魔法").  
+- Page 2: Formal business meeting ("株式会社ＮーＡー").  
+- Page 3: Chaotic, possibly public scene with urgency ("早まるな！") and confusion over identity ("勇者だって気づいてない").  
+
+**Tone:**  
+- Page 1: Clinical yet cautious ("副作用がどこまで及ぶかわからない").  
+- Page 2: Polite corporate speech ("感謝致します").  
+- Page 3: Tense and frantic ("なっなにやってんだ！"), with moments of comedic confusion ("なんか目線違くない…？").  
+
+**Key Terms:**  
+- Magic terms: "魔法", "精神を震わせる", "状態異常", "念話" (telepathy?).  
+- Corporate: "株式会社ＮーＡー", "秋本".  
+- Action: "飛び降りる", "勇者", "ビヨンド".  
+
+**Consistency Notes:**  
+- Maintain distinction between formal (Page 2) and casual/panicked speech (Page 3).  
+- "ビヨンド" appears to be a name/title—verify if recurring.  
+- Magic terminology should reflect experimental/uncertainty tone ("初めてだから").  
+
+**Visual Context Clues (from text):**  
+- Page 3 implies physical comedy/action ("目線違くない" suggests perspective shift).  
+- Corporate scene likely contrasts with magical/action sequences.  
+
+(Summary length: ~300 words)
+[INFO] module_manager:_imgtrans_pipeline:572 - Book context summary generated.
+[DEBUG] trans_llm_api:_initialize_client:225 - Initializing client for OpenRouter with key sk-o...bd17 at endpoint https://openrouter.ai/api/v1
+[DEBUG] trans_llm_api:_request_translation:540 - Using 'json_object' mode for OpenRouter.
+[INFO] trans_llm_api:_translate:682 - Successfully translated batch of 6. Tokens used: 1036
+[DEBUG] trans_llm_api:_initialize_client:225 - Initializing client for OpenRouter with key sk-o...bd17 at endpoint https://openrouter.ai/api/v1
+[DEBUG] trans_llm_api:_request_translation:540 - Using 'json_object' mode for OpenRouter.
+[DEBUG] proj_imgtrans:save:345 - project saved to ces/imgtrans_.json
+[INFO] trans_llm_api:_translate:682 - Successfully translated batch of 7. Tokens used: 1024
+[DEBUG] trans_llm_api:_initialize_client:225 - Initializing client for OpenRouter with key sk-o...bd17 at endpoint https://openrouter.ai/api/v1
+[DEBUG] trans_llm_api:_request_translation:540 - Using 'json_object' mode for OpenRouter.
+[DEBUG] proj_imgtrans:save:345 - project saved to ces/imgtrans_.json
+[INFO] trans_llm_api:_translate:682 - Successfully translated batch of 11. Tokens used: 1226
+[DEBUG] proj_imgtrans:save:345 - project saved to ces/imgtrans_.json
+[INFO] mainwindow:run_next_dir:1787 - finished translating all dirs, quit app...

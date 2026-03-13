@@ -129,7 +129,12 @@ class MainWindow(mainwindow_cls):
         self.setStyleSheet(parse_stylesheet(theme, reverse_icon))
 
     def setupUi(self):
-        screen_size = QGuiApplication.primaryScreen().geometry().size()
+        primary_screen = QGuiApplication.primaryScreen()
+        if primary_screen is not None:
+            screen_size = primary_screen.geometry().size()
+        else:
+            # Headless environments may not expose a screen object.
+            screen_size = QSize(1920, 1080)
         self.setMinimumWidth(screen_size.width() // 2)
         self.configPanel = ConfigPanel(self)
         self.configPanel.trans_config_panel.show_pre_MT_keyword_window.connect(self.show_pre_MT_keyword_window)
@@ -1753,7 +1758,18 @@ class MainWindow(mainwindow_cls):
         self.exec_dirs = valid_dirs
         self.run_next_dir()
 
+    def close_headless_progress_bars(self):
+        if not shared.pbar:
+            return
+        for _, pbar in list(shared.pbar.items()):
+            try:
+                pbar.close()
+            except Exception:
+                pass
+        shared.pbar = {}
+
     def run_next_dir(self):
+        self.close_headless_progress_bars()
         if len(self.exec_dirs) == 0:
             while self.imsave_thread.isRunning():
                 time.sleep(0.1)
@@ -1775,7 +1791,6 @@ class MainWindow(mainwindow_cls):
         
         LOGGER.info(f'translating {d} ...')
         self.openDir(d)
-        shared.pbar = {}
         npages = len(self.imgtrans_proj.pages)
         if npages > 0:
             if pcfg.module.enable_detect:

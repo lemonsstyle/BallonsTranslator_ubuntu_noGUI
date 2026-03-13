@@ -189,6 +189,20 @@ def main():
     if args.headless or args.headless_continuous:
         config.module.load_model_on_demand = True
         config.module.empty_runcache = False
+        # lama_large_512px is prohibitively slow on CPU/MPS headless environments.
+        if (
+            config.module.enable_inpaint
+            and config.module.inpainter == 'lama_large_512px'
+            and os.environ.get('BALLOONTRANS_KEEP_SLOW_INPAINTER', '0') != '1'
+        ):
+            from modules.base import DEFAULT_DEVICE
+            if DEFAULT_DEVICE in {'cpu', 'mps'}:
+                LOGGER.warning(
+                    f'Detected {DEFAULT_DEVICE}-headless run with lama_large_512px. '
+                    'Switching inpainter to opencv-tela for practical speed. '
+                    'Set BALLOONTRANS_KEEP_SLOW_INPAINTER=1 to disable this fallback.'
+                )
+                config.module.inpainter = 'opencv-tela'
 
     if sys.platform == 'win32':
         import ctypes

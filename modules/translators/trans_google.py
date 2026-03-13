@@ -28,7 +28,7 @@ class GoogleTranslateProviderPython:
 
     api_url_path_segment = "/translateHtml"  # Path to the translation endpoint
 
-    def __init__(self, timeout: int = 10):
+    def __init__(self, timeout: int = 6):
         self.base_headers = {
             "X-Goog-API-Key": GOOGLE_API_KEY,  # Use the constant
             "Content-Type": "application/json+protobuf",
@@ -87,6 +87,7 @@ class GoogleTranslateProviderPython:
             return {"lang": target_language, "translations": []}
 
         translations_result = []
+        consecutive_failures = 0
         for text_item in text_list:
             if not text_item or not text_item.strip():
                 translations_result.append("")
@@ -118,8 +119,19 @@ class GoogleTranslateProviderPython:
                     translations_result.append(html.unescape(extracted_text))
                 else:
                     translations_result.append("")
-            except ProviderError:
+                consecutive_failures = 0
+            except ProviderError as e:
                 translations_result.append("")
+                consecutive_failures += 1
+                if consecutive_failures >= 3:
+                    remain = len(text_list) - len(translations_result)
+                    if remain > 0:
+                        LOGGER.warning(
+                            f"Google Translate is unavailable ({e}); "
+                            f"skip remaining {remain} entries to avoid long blocking."
+                        )
+                        translations_result.extend([""] * remain)
+                    break
 
         return {"lang": target_language, "translations": translations_result}
 
@@ -130,10 +142,12 @@ class TransGoogle(BaseTranslator):
     concate_text = False
     params: Dict = {
         "delay": 0.0,
+        "timeout": 6,
     }
 
     def _setup_translator(self):
-        self.internal_google_translator = GoogleTranslateProviderPython()
+        timeout = int(self.params.get("timeout", 6))
+        self.internal_google_translator = GoogleTranslateProviderPython(timeout=timeout)
 
         self.lang_map["Auto"] = "auto"
         self.lang_map["简体中文"] = "zh-CN"

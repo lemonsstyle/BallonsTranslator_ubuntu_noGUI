@@ -3,7 +3,7 @@ from typing import List, Union
 from qtpy.QtWidgets import QStackedWidget, QSizePolicy, QTextEdit, QScrollArea, QGraphicsDropShadowEffect, QVBoxLayout, QApplication, QHBoxLayout, QSizePolicy, QLabel, QLineEdit
 from qtpy.QtCore import Signal, Qt, QMimeData, QEvent, QPoint, QSize
 from qtpy.QtGui import QIntValidator, QColor, QFocusEvent, QInputMethodEvent, QDragEnterEvent, QDropEvent, QKeyEvent, QTextCursor, QMouseEvent, QDrag, QPixmap, QKeySequence
-import keyboard
+import sys
 import webbrowser
 import numpy as np
 
@@ -11,6 +11,32 @@ from .custom_widget import ScrollBar, Widget, SeparatorWidget, ClickableLabel
 from .textitem import TextBlock
 from utils.config import pcfg
 from utils.logger import logger as LOGGER
+
+_keyboard_module = None
+_keyboard_unavailable = False
+
+
+def _get_keyboard_module():
+    global _keyboard_module, _keyboard_unavailable
+    if _keyboard_module is not None:
+        return _keyboard_module
+    if _keyboard_unavailable:
+        return None
+
+    # macOS may segfault when importing keyboard backend, so avoid importing it here.
+    if sys.platform == 'darwin':
+        _keyboard_unavailable = True
+        return None
+
+    try:
+        import keyboard as keyboard_module
+        _keyboard_module = keyboard_module
+    except Exception as e:
+        _keyboard_unavailable = True
+        LOGGER.warning(f'Failed to import keyboard module: {e}')
+        return None
+
+    return _keyboard_module
 
 
 STYLE_TRANSPAIR_CHECKED = "background-color: rgba(30, 147, 229, 20%);"
@@ -50,8 +76,17 @@ class SelectTextMiniMenu(Widget):
     def on_saladict(self):
         self.app.clipboard().setText(self.selected_text)
         self.block_current_editor.emit(True)
-        keyboard.press(pcfg.saladict_shortcut)
-        keyboard.release(pcfg.saladict_shortcut)
+        keyboard_module = _get_keyboard_module()
+        if keyboard_module is None:
+            LOGGER.warning('SalaDict shortcut trigger is unavailable on this platform. Please press the shortcut manually.')
+            self.block_current_editor.emit(False)
+            self.hide()
+            return
+        try:
+            keyboard_module.press(pcfg.saladict_shortcut)
+            keyboard_module.release(pcfg.saladict_shortcut)
+        except Exception as e:
+            LOGGER.warning(f'Failed to trigger SalaDict shortcut: {e}')
         self.block_current_editor.emit(False)
         self.hide()
 
