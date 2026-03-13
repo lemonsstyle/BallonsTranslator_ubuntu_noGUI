@@ -218,7 +218,9 @@ def main():
 
     app_args = sys.argv
     if args.headless or args.headless_continuous:
-        app_args = sys.argv + ['-platform', 'offscreen']
+        # macOS has issues with offscreen mode, skip it
+        if sys.platform != 'darwin':
+            app_args = sys.argv + ['-platform', 'offscreen']
     app = QApplication(app_args)
     app.setApplicationName('BalloonsTranslator')
     app.setApplicationVersion(VERSION)
