@@ -53,23 +53,25 @@ def nested_dataclass(*args, **dataclass_kwargs):
 class Config:
     
     def update(self, key: str, value):
-        assert key in self.__annotations__, f'type object \'{self.__class__.__name__}\' has no attribute {key}'
+        annotations = getattr(self.__class__, '__annotations__', {})
+        assert key in annotations, f'type object \'{self.__class__.__name__}\' has no attribute {key}'
         self.__setattr__(key, value)
 
     @classmethod
     def annotations_set(cls):
-        return set(list(cls.__annotations__))
-    
+        return set(list(getattr(cls, '__annotations__', {})))
+
     def __getitem__(self, key: str):
-        assert key in self.__annotations__, f'type object \'{self.__class__.__name__}\' has no attribute {key}'
+        annotations = getattr(self.__class__, '__annotations__', {})
+        assert key in annotations, f'type object \'{self.__class__.__name__}\' has no attribute {key}'
         return self.__getattribute__(key)
-    
+
     def __setitem__(self, key: str, value):
         self.__setattr__(key, value)
 
     @classmethod
     def params(cls):
-        return cls.__annotations__
+        return getattr(cls, '__annotations__', {})
     
     def merge(self, target):
         tgt_keys = target.annotations_set()
