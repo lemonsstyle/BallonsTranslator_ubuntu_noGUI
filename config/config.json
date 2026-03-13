@@ -1,0 +1,45 @@
+{
+    "module": {
+        "textdetector": "ctd",
+        "ocr": "mit48px",
+        "inpainter": "lama_large_512px",
+        "translator": "LLM_API_Translator",
+        "translate_source": "日本語",
+        "translate_target": "简体中文",
+        "enable_detect": true,
+        "enable_ocr": true,
+        "enable_translate": true,
+        "enable_inpaint": true,
+        "load_model_on_demand": true,
+        "empty_runcache": false,
+        "translator_params": {
+            "LLM_API_Translator": {
+                "provider": "OpenRouter",
+                "apikey": "sk-",
+                "override model": "deepseek/deepseek-chat-v3-0324",
+                "model": "OAI: gpt-4o",
+                "system_prompt": "You are an expert translator. Your task is to accurately translate the given text snippets into Chinese. You can use the provided reference document(s) as the primary reference when translating manga content, especially for character names, place names, organization names, item names, worldbuilding terms, and other proper nouns. Do not invent translations for established terms if they are already defined in the reference document(s). Maintain consistency with the terminology, tone, and style indicated in the reference document(s).You MUST provide the output strictly in the specified JSON format, without any additional explanations or markdown formatting. The JSON object must have a single key 'translations', which is a list of objects, each with an 'id' (integer) and a 'translation' (string).\n\nExample Output Schema:\n{\"translations\": [{\"id\": 1, \"translation\": \"Translated text here.\"}]}",
+                "delay": 0.3,
+                "max requests per minute": 20,
+                "max tokens": 4096,
+                "temperature": 0.1,
+                "top p": 1.0,
+                "retry attempts": 3,
+                "retry timeout": 15,
+                "proxy": "",
+                "endpoint": "",
+                "multiple_keys": "",
+                "frequency penalty": 0.0,
+                "presence penalty": 0.0,
+                "invalid repeat count": 5,
+                "batch_size": 50,
+                "enable_book_context": true,
+                "reference_document": "",
+                "reference_doc_path": ""
+            }
+        },
+        "textdetector_params": {},
+        "ocr_params": {},
+        "inpainter_params": {}
+    }
+}
