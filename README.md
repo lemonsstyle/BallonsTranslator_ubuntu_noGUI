@@ -49,6 +49,7 @@ BallonsTranslator_ubuntu_noGUI-AI_trans/
    - `system_prompt`
    - `override model`
    - `endpoint`（OpenRouter 建议填 `https://openrouter.ai/api/v1`）
+3. 如需给模型额外背景设定，可在命令行使用 `--reference ./comic_ref.md`
 
 建议：
 
@@ -71,6 +72,13 @@ ces/
 ```bash
 conda activate pc
 QT_QPA_PLATFORM=offscreen python launch.py --frozen --headless --exec_dirs "ces/"
+```
+
+带参考文档运行：
+
+```bash
+conda activate pc
+QT_QPA_PLATFORM=offscreen python launch.py --frozen --headless --exec_dirs "ces/" --reference ./comic_ref.md
 ```
 
 多个目录可用逗号分隔：

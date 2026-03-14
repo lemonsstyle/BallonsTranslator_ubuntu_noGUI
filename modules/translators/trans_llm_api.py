@@ -2,6 +2,7 @@ import re
 import time
 import json
 import traceback
+from pathlib import Path
 from typing import List, Dict, Optional, Type
 
 import httpx
@@ -9,6 +10,7 @@ import openai
 from pydantic import BaseModel, Field, ValidationError
 
 from .base import BaseTranslator, register_translator
+from utils import shared
 
 
 class InvalidNumTranslations(Exception):
@@ -130,8 +132,17 @@ class LLM_API_Translator(BaseTranslator):
         },
         "presence penalty": {"value": 0.0, "description": "Presence penalty (OpenAI)."},
         "enable_book_context": {
-            "value": False,
+            "value": True,
             "description": "Enable pre-analysis of all OCR text before translation for consistent naming and style.",
+        },
+        "reference_doc_path": {
+            "value": "",
+            "description": "Optional reference document path. CLI --reference overrides this value.",
+        },
+        "reference_document": {
+            "type": "editor",
+            "value": "",
+            "description": "Optional inline reference document text for terminology, lore, and naming consistency.",
         },
         "book_context_prompt": {
             "type": "editor",
@@ -183,8 +194,11 @@ class LLM_API_Translator(BaseTranslator):
         self.key_usage = {}
         self.client = None
         self._book_context_summary: str = ""
+        self._reference_document: str = ""
+        self._reference_source: str = ""
         self._consecutive_api_failures = 0
         self._api_failure_circuit_open = False
+        self._load_reference_document()
 
     def _initialize_client(self, api_key_to_use: str) -> bool:
         endpoint = self.endpoint
@@ -305,6 +319,14 @@ class LLM_API_Translator(BaseTranslator):
         return self.get_param_value("system_prompt")
 
     @property
+    def reference_doc_path(self) -> str:
+        return self.get_param_value("reference_doc_path")
+
+    @property
+    def reference_document(self) -> str:
+        return self.get_param_value("reference_document")
+
+    @property
     def invalid_repeat_count(self) -> int:
         return int(self.get_param_value("invalid repeat count"))
 
@@ -336,6 +358,62 @@ class LLM_API_Translator(BaseTranslator):
     def needs_book_context(self) -> bool:
         return self.enable_book_context
 
+    def _cli_reference_path(self) -> str:
+        args = shared.args
+        if args is None:
+            return ""
+        return getattr(args, "reference", "") or ""
+
+    def _read_reference_file(self, path_str: str) -> str:
+        path = Path(path_str).expanduser()
+        if not path.exists():
+            self.logger.warning(f"Reference document does not exist: {path}")
+            return ""
+        if not path.is_file():
+            self.logger.warning(f"Reference path is not a file: {path}")
+            return ""
+
+        for encoding in ("utf-8", "utf-8-sig", "gb18030"):
+            try:
+                return path.read_text(encoding=encoding)
+            except UnicodeDecodeError:
+                continue
+
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore")
+        except Exception as e:
+            self.logger.warning(f"Failed to read reference document {path}: {e}")
+            return ""
+
+    def _load_reference_document(self) -> None:
+        inline_reference = (self.reference_document or "").strip()
+        path_reference = ""
+        path_source = ""
+
+        cli_path = self._cli_reference_path()
+        cfg_path = (self.reference_doc_path or "").strip()
+        resolved_path = cli_path or cfg_path
+        if resolved_path:
+            path_reference = self._read_reference_file(resolved_path).strip()
+            if path_reference:
+                path_source = resolved_path
+
+        parts = []
+        if path_reference:
+            parts.append(path_reference)
+        if inline_reference:
+            parts.append(inline_reference)
+
+        self._reference_document = "\n\n".join(parts).strip()
+        self._reference_source = path_source or ("inline config" if inline_reference else "")
+
+        if self._reference_document:
+            source_desc = self._reference_source or "unknown source"
+            self.logger.info(
+                f"Loaded reference document from {source_desc} "
+                f"({len(self._reference_document)} chars)."
+            )
+
     def generate_book_context(self, pages) -> None:
         all_text_parts = []
         for page_name, blk_list in pages.items():
@@ -353,6 +431,11 @@ class LLM_API_Translator(BaseTranslator):
 
         all_text = "\n\n".join(all_text_parts)
         user_message = self.book_context_prompt + "\n\nBelow is the OCR text from the book:\n\n" + all_text
+        if self._reference_document:
+            user_message += (
+                "\n\nReference document for canon names, worldbuilding, and style:\n\n"
+                + self._reference_document
+            )
 
         current_api_key = self._select_api_key()
         if not current_api_key:
@@ -510,6 +593,13 @@ class LLM_API_Translator(BaseTranslator):
             model_name = model_name.split(": ", 1)[1]
 
         system_content = self.system_prompt
+        if self._reference_document:
+            system_content += (
+                "\n\n## Reference Document\n"
+                "Use the following reference as authoritative guidance for names, "
+                "terms, fixed titles, lore, relationships, and tone:\n\n"
+                + self._reference_document
+            )
         if self._book_context_summary:
             system_content += (
                 "\n\n## Book Context Summary\n"

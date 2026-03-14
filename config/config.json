@@ -34,6 +34,8 @@
                 "frequency penalty": 0.0,
                 "presence penalty": 0.0,
                 "invalid repeat count": 5,
+                "reference_doc_path": "",
+                "reference_document": "",
                 "enable_book_context": true,
                 "book_context_prompt": "You are given all OCR-extracted text from a manga/comic, organized by page. Analyze the content and produce a concise reference summary for a translator. Include characters, setting, tone, key terms, and consistency notes. Keep the summary under 500 words. Do NOT translate the text."
             }

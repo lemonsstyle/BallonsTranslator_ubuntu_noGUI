@@ -47,8 +47,11 @@ parser.add_argument("--export-source-txt", action='store_true', help='save sourc
 parser.add_argument("--frozen", action='store_true', help='run without checking requirements')
 parser.add_argument("--update", action='store_true', help="Update the repository before launching") # Add argument --update
 parser.add_argument("--config_path", default=shared.CONFIG_PATH, help='Config file to use for translation') # Named config_path to avoid conflict with existing name config
+parser.add_argument("--reference", default='', help='Reference document path for translation context')
 parser.add_argument('--nightly', action='store_true', help="Enable AMD Nightly ROCm")
 args, _ = parser.parse_known_args()
+if args.reference:
+    args.reference = osp.abspath(osp.expanduser(args.reference))
 
 
 def is_installed(package):
