@@ -2,6 +2,7 @@ import re
 import time
 import json
 import traceback
+import os
 from pathlib import Path
 from typing import List, Dict, Optional, Type
 
@@ -257,6 +258,9 @@ class LLM_API_Translator(BaseTranslator):
 
     @property
     def apikey(self) -> str:
+        env_key = os.getenv("BA_API_KEY", "").strip()
+        if env_key:
+            return env_key
         return self.get_param_value("apikey")
 
     @property

@@ -58,10 +58,14 @@ def main() -> int:
     parser.add_argument("--max-tokens", type=int, default=512)
     args = parser.parse_args()
 
-    api_key = args.api_key or os.getenv("OPENROUTER_API_KEY", "")
+    api_key = (
+        args.api_key
+        or os.getenv("BA_API_KEY", "")
+        or os.getenv("OPENROUTER_API_KEY", "")
+    )
     if not api_key:
         print("ERROR: API key is empty.")
-        print("Set USER_API_KEY in this file, or export OPENROUTER_API_KEY, or pass --api-key.")
+        print("Set USER_API_KEY in this file, or export BA_API_KEY / OPENROUTER_API_KEY, or pass --api-key.")
         return 2
 
     endpoint = normalize_chat_endpoint(args.endpoint)

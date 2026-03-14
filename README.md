@@ -45,7 +45,6 @@ BallonsTranslator_ubuntu_noGUI-AI_trans/
 
 1. `module.translator` 使用 `LLM_API_Translator`
 2. 在 `module.translator_params.LLM_API_Translator` 中填写：
-   - `apikey`
    - `system_prompt`
    - `override model`
    - `endpoint`（OpenRouter 建议填 `https://openrouter.ai/api/v1`）
@@ -53,8 +52,8 @@ BallonsTranslator_ubuntu_noGUI-AI_trans/
 
 建议：
 
-1. 先把 `enable_book_context` 设为 `false`，可减少额外请求。
-2. 不要把真实 API key 提交到 git。
+1. 建议把 `apikey` 留空，运行前通过环境变量提供真实密钥。
+2. 先把 `enable_book_context` 设为 `false`，可减少额外请求。
 
 ## 5. 准备待翻译图片目录
 
@@ -71,6 +70,7 @@ ces/
 
 ```bash
 conda activate pc
+export BA_API_KEY="你的真实密钥"
 QT_QPA_PLATFORM=offscreen python launch.py --frozen --headless --exec_dirs "ces/"
 ```
 
@@ -78,6 +78,7 @@ QT_QPA_PLATFORM=offscreen python launch.py --frozen --headless --exec_dirs "ces/
 
 ```bash
 conda activate pc
+export BA_API_KEY="你的真实密钥"
 QT_QPA_PLATFORM=offscreen python launch.py --frozen --headless --exec_dirs "ces/" --reference ./comic_ref.md
 ```
 
@@ -112,3 +113,10 @@ python scripts/openrouter_smoketest.py
 ```
 
 在脚本顶部填好 `endpoint`、`api key`、`prompt`、`text` 后运行。
+
+也可以直接：
+
+```bash
+export BA_API_KEY="你的真实密钥"
+python scripts/openrouter_smoketest.py
+```
