@@ -119,6 +119,10 @@ class LLM_API_Translator(BaseTranslator):
             "value": 12,
             "description": "Per-request API timeout in seconds.",
         },
+        "book context timeout": {
+            "value": 30,
+            "description": "Timeout in seconds for the whole-book context pre-analysis request.",
+        },
         "max consecutive api failures": {
             "value": 2,
             "description": "Open a fail-fast circuit after this many failed translation batches.",
@@ -157,6 +161,14 @@ class LLM_API_Translator(BaseTranslator):
                      "5. **Translation Notes**: Any other observations helpful for maintaining consistency.\n\n"
                      "Keep the summary under 500 words. Do NOT translate the text — only analyze it.",
             "description": "Prompt template for the book context pre-analysis call.",
+        },
+        "translation batch pages": {
+            "value": 5,
+            "description": "Maximum number of pages to combine into one deferred translation dispatch.",
+        },
+        "translation batch textblocks": {
+            "value": 50,
+            "description": "Maximum number of non-empty text blocks to combine into one deferred translation dispatch.",
         },
     }
 
@@ -311,6 +323,13 @@ class LLM_API_Translator(BaseTranslator):
         return float(self.get_param_value("request timeout"))
 
     @property
+    def book_context_timeout(self) -> float:
+        timeout = self.get_param_value("book context timeout")
+        if timeout in (None, ""):
+            return max(30.0, self.request_timeout)
+        return max(float(timeout), self.request_timeout)
+
+    @property
     def max_consecutive_api_failures(self) -> int:
         return max(1, int(self.get_param_value("max consecutive api failures")))
 
@@ -361,6 +380,14 @@ class LLM_API_Translator(BaseTranslator):
     @property
     def needs_book_context(self) -> bool:
         return self.enable_book_context
+
+    @property
+    def translation_batch_page_size(self) -> int:
+        return max(1, int(self.get_param_value("translation batch pages")))
+
+    @property
+    def translation_batch_textblk_size(self) -> int:
+        return max(0, int(self.get_param_value("translation batch textblocks")))
 
     def _cli_reference_path(self) -> str:
         args = shared.args
@@ -418,7 +445,8 @@ class LLM_API_Translator(BaseTranslator):
                 f"({len(self._reference_document)} chars)."
             )
 
-    def generate_book_context(self, pages) -> None:
+    def generate_book_context(self, pages) -> bool:
+        self._book_context_summary = ""
         all_text_parts = []
         for page_name, blk_list in pages.items():
             texts = []
@@ -431,7 +459,7 @@ class LLM_API_Translator(BaseTranslator):
 
         if not all_text_parts:
             self.logger.warning("No OCR text found in any page, skipping book context generation.")
-            return
+            return False
 
         all_text = "\n\n".join(all_text_parts)
         user_message = self.book_context_prompt + "\n\nBelow is the OCR text from the book:\n\n" + all_text
@@ -444,11 +472,11 @@ class LLM_API_Translator(BaseTranslator):
         current_api_key = self._select_api_key()
         if not current_api_key:
             self.logger.error("No API key available for book context generation.")
-            return
+            return False
 
         if not self._initialize_client(current_api_key):
             self.logger.error("Failed to initialize client for book context generation.")
-            return
+            return False
 
         self._respect_delay()
 
@@ -467,15 +495,20 @@ class LLM_API_Translator(BaseTranslator):
                 messages=messages,
                 temperature=0.3,
                 max_tokens=self.max_tokens,
-                timeout=self.request_timeout,
+                timeout=self.book_context_timeout,
             )
             if completion.choices and completion.choices[0].message and completion.choices[0].message.content:
                 self._book_context_summary = completion.choices[0].message.content.strip()
                 self.logger.info(f"Book context summary generated ({len(self._book_context_summary)} chars):\n{self._book_context_summary}")
+                return True
             else:
                 self.logger.warning("Empty response from book context pre-analysis.")
+                return False
         except Exception as e:
-            self.logger.error(f"Book context pre-analysis failed: {e}")
+            self.logger.error(
+                f"Book context pre-analysis failed after {self.book_context_timeout:.0f}s timeout: {e}"
+            )
+            return False
 
     def _assemble_prompts(self, queries: List[str], to_lang: str):
         from_lang = self.lang_map.get(self.lang_source, self.lang_source)
@@ -574,6 +607,41 @@ class LLM_API_Translator(BaseTranslator):
                 return key
         self.logger.error("All available API keys are currently rate-limited.")
         return None
+
+    def _usable_key_count(self) -> int:
+        if self.multiple_keys_list:
+            return len(self.multiple_keys_list)
+        return 1 if self.apikey else 0
+
+    def _error_text(self, exc: Exception) -> str:
+        parts = [str(exc)]
+        body = getattr(exc, "body", None)
+        if body:
+            try:
+                parts.append(json.dumps(body, ensure_ascii=False))
+            except Exception:
+                parts.append(str(body))
+        return " ".join(part for part in parts if part).lower()
+
+    def _is_quota_exhausted_error(self, exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        if status_code not in (402, 403, 429):
+            return False
+        detail = self._error_text(exc)
+        quota_markers = (
+            "key usage limit exceeded",
+            "usage limit exceeded",
+            "quota exceeded",
+            "quota",
+            "insufficient credits",
+            "credit balance is too low",
+            "billing",
+        )
+        return any(marker in detail for marker in quota_markers)
+
+    def _is_non_retryable_auth_error(self, exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        return status_code in (401, 403)
 
     def _request_translation(self, prompt: str) -> Optional[TranslationResponse]:
         current_api_key = "lm-studio"
@@ -792,6 +860,26 @@ class LLM_API_Translator(BaseTranslator):
                     time.sleep(self.retry_timeout / 2)
 
                 except RETRYABLE_EXCEPTIONS as e:
+                    if self._usable_key_count() <= 1 and self._is_non_retryable_auth_error(e):
+                        self._consecutive_api_failures += 1
+                        self._api_failure_circuit_open = True
+                        if self._is_quota_exhausted_error(e):
+                            self.logger.error(
+                                "Fatal Error: API quota or key usage limit exceeded. "
+                                "Stopping retries because only one usable API key is configured."
+                            )
+                            translations.extend(["[ERROR: API Quota Exceeded]"] * num_src)
+                        else:
+                            self.logger.error(
+                                "Fatal Error: API authentication or permission denied. "
+                                "Stopping retries because only one usable API key is configured."
+                            )
+                            translations.extend(["[ERROR: API Permission Denied]"] * num_src)
+                        self.logger.error(
+                            "Opening API fail-fast circuit after non-retryable authentication/quota failure. "
+                            "Remaining pages will be skipped quickly."
+                        )
+                        break
                     api_retry_attempt += 1
                     self.logger.warning(
                         f"API Error (retryable): {type(e).__name__} - {e}. Attempt {api_retry_attempt}/{self.retry_attempts}."

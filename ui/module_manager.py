@@ -329,6 +329,98 @@ class ImgtransThread(QThread):
     def inpainter(self) -> InpainterBase:
         return self.inpaint_thread.inpainter
 
+    def _count_translatable_blocks(self, blk_list: List[TextBlock]) -> int:
+        count = 0
+        for blk in blk_list or []:
+            text = blk.get_text()
+            if isinstance(text, list):
+                text = ''.join(str(part) for part in text)
+            elif text is None:
+                text = ''
+            else:
+                text = str(text)
+            if text.strip():
+                count += 1
+        return count
+
+    def _flush_deferred_translation_batch(self, batch_pages: List[str], batch_textblk_count: int) -> None:
+        if not batch_pages:
+            return
+
+        flat_blk_list = []
+        for imgname in batch_pages:
+            flat_blk_list.extend(self.imgtrans_proj.pages[imgname])
+
+        batch_t0 = time.perf_counter()
+        if batch_textblk_count > 0:
+            self.translator.translate_textblk_lst(flat_blk_list)
+        LOGGER.info(
+            f'[pipeline] deferred translation batch done in '
+            f'{time.perf_counter() - batch_t0:.2f}s, pages={len(batch_pages)}, '
+            f'blks={batch_textblk_count}, first={batch_pages[0]}, last={batch_pages[-1]}'
+        )
+
+        for imgname in batch_pages:
+            self.translate_counter += 1
+            self.imgtrans_proj.update_page_progress(imgname, RunStatus.FIN_TRANSLATE)
+            self.update_translate_progress.emit(self.translate_counter)
+
+    def _run_deferred_translation(self, pages_to_iterate: List[str]) -> None:
+        page_limit = max(1, int(getattr(self.translator, 'translation_batch_page_size', 1)))
+        textblk_limit = max(0, int(getattr(self.translator, 'translation_batch_textblk_size', 0)))
+
+        if page_limit <= 1 and textblk_limit <= 0:
+            for imgname in pages_to_iterate:
+                if self.stop_requested:
+                    LOGGER.info('Translation stopped by user')
+                    break
+
+                blk_list = self.imgtrans_proj.pages[imgname]
+                self.translator.translate_textblk_lst(blk_list)
+                self.translate_counter += 1
+                self.imgtrans_proj.update_page_progress(imgname, RunStatus.FIN_TRANSLATE)
+                self.update_translate_progress.emit(self.translate_counter)
+            return
+
+        LOGGER.info(
+            f'[pipeline] deferred translation batching enabled: '
+            f'pages_per_batch={page_limit}, textblks_per_batch={textblk_limit}'
+        )
+
+        batch_pages: List[str] = []
+        batch_textblk_count = 0
+
+        for imgname in pages_to_iterate:
+            if self.stop_requested:
+                LOGGER.info('Translation stopped by user')
+                break
+
+            blk_list = self.imgtrans_proj.pages[imgname]
+            page_textblk_count = self._count_translatable_blocks(blk_list)
+
+            if (
+                batch_pages
+                and textblk_limit > 0
+                and batch_textblk_count + page_textblk_count > textblk_limit
+            ):
+                self._flush_deferred_translation_batch(batch_pages, batch_textblk_count)
+                batch_pages = []
+                batch_textblk_count = 0
+
+            batch_pages.append(imgname)
+            batch_textblk_count += page_textblk_count
+
+            if (
+                len(batch_pages) >= page_limit
+                or (textblk_limit > 0 and batch_textblk_count >= textblk_limit)
+            ):
+                self._flush_deferred_translation_batch(batch_pages, batch_textblk_count)
+                batch_pages = []
+                batch_textblk_count = 0
+
+        if batch_pages and not self.stop_requested:
+            self._flush_deferred_translation_batch(batch_pages, batch_textblk_count)
+
     def runImgtransPipeline(self, imgtrans_proj: ProjImgTrans, pages_to_process=None):
         self.imgtrans_proj = imgtrans_proj
         self.pages_to_process = pages_to_process  # 保存需要处理的页面列表
@@ -568,21 +660,15 @@ class ImgtransThread(QThread):
             if needs_book_context:
                 try:
                     LOGGER.info('Generating book context summary from OCR text...')
-                    self.translator.generate_book_context(self.imgtrans_proj.pages)
-                    LOGGER.info('Book context summary generated.')
+                    generated = self.translator.generate_book_context(self.imgtrans_proj.pages)
+                    if generated:
+                        LOGGER.info('Book context summary generated.')
+                    else:
+                        LOGGER.warning('Book context summary was not generated. Translation will continue without it.')
                 except Exception as e:
                     LOGGER.error(f'Failed to generate book context: {e}')
 
-            for imgname in pages_to_iterate:
-                if self.stop_requested:
-                    LOGGER.info('Translation stopped by user')
-                    break
-
-                blk_list = self.imgtrans_proj.pages[imgname]
-                self.translator.translate_textblk_lst(blk_list)
-                self.translate_counter += 1
-                self.imgtrans_proj.update_page_progress(imgname, RunStatus.FIN_TRANSLATE)
-                self.update_translate_progress.emit(self.translate_counter)
+            self._run_deferred_translation(pages_to_iterate)
 
         if self.stop_requested and (not cfg_module.enable_translate or not self.parallel_trans):
             self.pipeline_stopped.emit()

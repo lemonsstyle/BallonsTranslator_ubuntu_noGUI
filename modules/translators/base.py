@@ -221,6 +221,16 @@ class BaseTranslator(BaseModule):
         until OCR is complete on every page."""
         return False
 
+    @property
+    def translation_batch_page_size(self) -> int:
+        """How many pages can be grouped into one translation dispatch."""
+        return 1
+
+    @property
+    def translation_batch_textblk_size(self) -> int:
+        """How many non-empty text blocks can be grouped into one dispatch."""
+        return 0
+
     def supported_languages(self) -> List[str]:
         return self.valid_lang_list
 

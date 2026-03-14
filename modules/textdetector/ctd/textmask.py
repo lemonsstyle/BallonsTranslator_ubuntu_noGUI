@@ -53,17 +53,38 @@ def get_otsuthresh_masklist(img, pred_mask, per_channel=False) -> List[np.ndarra
         return [mask_list[0]]
 
 def get_topk_masklist(im_grey, pred_mask):
-    if len(im_grey.shape) == 3 and im_grey.shape[-1] == 3:
-        im_grey = cv2.cvtColor(im_grey, cv2.COLOR_RGB2GRAY)
+    if len(im_grey.shape) == 3:
+        if im_grey.shape[-1] == 3:
+            im_grey = cv2.cvtColor(im_grey, cv2.COLOR_RGB2GRAY)
+        elif im_grey.shape[-1] == 4:
+            im_grey = cv2.cvtColor(im_grey, cv2.COLOR_RGBA2GRAY)
+        else:
+            im_grey = im_grey[..., 0]
+    im_grey = np.ascontiguousarray(im_grey)
+    if im_grey.dtype != np.uint8:
+        im_grey = np.clip(im_grey, 0, 255).astype(np.uint8, copy=False)
     msk = np.ascontiguousarray(pred_mask)
     candidate_grey_px = im_grey[np.where(cv2.erode(msk, np.ones((3,3), np.uint8), iterations=1) > 127)]
-    bin, his = np.histogram(candidate_grey_px, bins=255)
-    topk_color = get_topk_color(his, bin, color_var=10, k=3)
+    if candidate_grey_px.size == 0:
+        return []
+    candidate_grey_px = np.asarray(candidate_grey_px).reshape(-1)
+    if candidate_grey_px.dtype.kind in ("f", "c"):
+        candidate_grey_px = candidate_grey_px[~np.isnan(candidate_grey_px)]
+    if candidate_grey_px.size == 0:
+        return []
+    candidate_grey_px = np.clip(candidate_grey_px, 0, 255).astype(np.uint8, copy=False)
+    color_list = np.arange(256, dtype=np.uint8)
+    bins = np.bincount(candidate_grey_px, minlength=256)
+    topk_color = get_topk_color(color_list, bins, color_var=10, k=3)
     color_range = 30
     mask_list = list()
     for ii, color in enumerate(topk_color):
-        c_top = min(color+color_range, 255)
-        c_bottom = c_top - 2 * color_range
+        try:
+            color_val = int(color)
+        except Exception:
+            continue
+        c_top = min(color_val + color_range, 255)
+        c_bottom = max(c_top - 2 * color_range, 0)
         threshed = cv2.inRange(im_grey, c_bottom, c_top)
         threshed, xor_sum = minxor_thresh(threshed, msk)
         mask_list.append([threshed, xor_sum])
