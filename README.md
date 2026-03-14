@@ -25,7 +25,7 @@ pip install -r requirements.txt
 
 ## 3. 下载并放置模型文件
 
-1. 从[网盘](https://www.alipan.com/s/vbuTbH5bER6))下载 `data.zip`。
+1. 从[网盘](https://www.alipan.com/s/vbuTbH5bER6)下载 `data.zip`。
 2. 解压得到 `data/` 目录。
 3. 把 `data/` 放到项目根目录（和 `launch.py` 同级）。
 
