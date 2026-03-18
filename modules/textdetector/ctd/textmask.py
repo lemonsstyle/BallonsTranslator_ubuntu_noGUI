@@ -57,11 +57,20 @@ def get_topk_masklist(im_grey, pred_mask):
         im_grey = cv2.cvtColor(im_grey, cv2.COLOR_RGB2GRAY)
     msk = np.ascontiguousarray(pred_mask)
     candidate_grey_px = im_grey[np.where(cv2.erode(msk, np.ones((3,3), np.uint8), iterations=1) > 127)]
-    bin, his = np.histogram(candidate_grey_px, bins=255)
-    topk_color = get_topk_color(his, bin, color_var=10, k=3)
+    candidate_grey_px = np.asarray(candidate_grey_px).reshape(-1)
+    if candidate_grey_px.size == 0:
+        return []
+
+    # Count discrete grayscale values directly. This avoids NumPy histogram
+    # edge-case failures seen on macOS/Python 3.14 in some image slices.
+    candidate_grey_px = np.clip(np.rint(candidate_grey_px), 0, 255).astype(np.uint8, copy=False)
+    color_values = np.arange(256)
+    color_bins = np.bincount(candidate_grey_px, minlength=256)
+    topk_color = get_topk_color(color_values, color_bins, color_var=10, k=3)
     color_range = 30
     mask_list = list()
     for ii, color in enumerate(topk_color):
+        color = int(color)
         c_top = min(color+color_range, 255)
         c_bottom = c_top - 2 * color_range
         threshed = cv2.inRange(im_grey, c_bottom, c_top)
