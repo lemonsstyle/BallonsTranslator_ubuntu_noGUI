@@ -1,8 +1,11 @@
 __pycache__
+__pycache__/
+*.pyc
 local_*
 inpainted
 mask
 result
+data/
 data/models
 data/testpacks/eng_dontupload
 data/testpacks/testpacks
@@ -13,6 +16,7 @@ release
 libs
 icons
 .btrans_cache
+.btrans_cache/
 
 tmp.py
 dummy_scripts.py
@@ -23,6 +27,7 @@ PortableGit
 test_dir
 tmp
 logs
+logs/
 ballontrans_pylibs_win
 config/config.json
 localtmp*
