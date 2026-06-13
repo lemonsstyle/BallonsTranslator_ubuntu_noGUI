@@ -27,16 +27,11 @@ English version: [README_EN.md](README_EN.md)
 
 ### 使用其他 AI 服务
 
-如果你想接入自己配置的第三方 AI 站点，优先确认该站点提供 OpenAI 兼容的 Chat Completions 接口，并且接口地址通常以 `/v1` 结尾。需要修改 `config/config.json` 里的这些字段：
+如果你想接入自己配置的第三方 AI 站点，确认该站点提供 OpenAI 兼容接口后，主要改 `config/config.json` 里的三个字段：
 
-- `module.translator`：保持或改为 `LLM_API_Translator`。
-- `module.translator_params.LLM_API_Translator.provider`：第三方 OpenAI 兼容服务通常填 `OpenAI`；如果是 OpenRouter、Google、Grok 或本地 LM Studio，可使用对应选项。
-- `module.translator_params.LLM_API_Translator.endpoint`：填写服务商提供的 API Base URL，例如 `https://example.com/v1`。不要填写完整的 `/chat/completions` 路径。
-- `module.translator_params.LLM_API_Translator.apikey`：填写服务商 API Key。不要把真实 Key 提交到公开仓库。
-- `module.translator_params.LLM_API_Translator.multiple_keys`：可选；多个 Key 用英文分号 `;` 或换行分隔。填了它以后会优先轮换使用这里的 Key。
-- `module.translator_params.LLM_API_Translator.model`：如果模型在内置列表里可直接选择；否则建议设为 `LLMS: (override model field)`。
+- `module.translator_params.LLM_API_Translator.endpoint`：填写服务商提供的 Base URL，例如 `https://example.com/v1`。不要填写完整的 `/chat/completions` 路径。
 - `module.translator_params.LLM_API_Translator.override model`：填写服务商实际模型名，例如 `deepseek-chat`、`qwen-plus` 或 `provider/model-name`。
-- `module.translator_params.LLM_API_Translator.max requests per minute`、`delay`、`batch_size`、`max tokens`：按服务商限速和模型上下文长度调整。
+- `module.translator_params.LLM_API_Translator.apikey`：填写服务商 API Key。不要把真实 Key 提交到公开仓库。
 
 最小示例：
 
@@ -46,18 +41,14 @@ English version: [README_EN.md](README_EN.md)
     "translator": "LLM_API_Translator",
     "translator_params": {
       "LLM_API_Translator": {
-        "provider": "OpenAI",
         "endpoint": "https://example.com/v1",
-        "apikey": "YOUR_API_KEY",
-        "model": "LLMS: (override model field)",
-        "override model": "provider/model-name"
+        "override model": "provider/model-name",
+        "apikey": "YOUR_API_KEY"
       }
     }
   }
 }
 ```
-
-如果接口报错和 `response_format` 或 JSON 结构有关，说明该站点可能不是完全 OpenAI 兼容，或不支持 JSON object 输出；这类服务需要改 `modules/translators/trans_llm_api.py` 的请求参数或响应解析逻辑。
 
 批量运行：
 

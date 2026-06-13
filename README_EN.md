@@ -27,16 +27,11 @@ Check `config/config.json` before running. The most important fields are:
 
 ### Using Another AI Service
 
-To use a third-party AI service that you configured yourself, first confirm that the service provides an OpenAI-compatible Chat Completions API. The API base URL usually ends with `/v1`. Update these fields in `config/config.json`:
+To use a third-party AI service that you configured yourself, confirm that the service provides an OpenAI-compatible API, then update three fields in `config/config.json`:
 
-- `module.translator`: keep or set it to `LLM_API_Translator`.
-- `module.translator_params.LLM_API_Translator.provider`: for most third-party OpenAI-compatible services, use `OpenAI`; use the matching option only for OpenRouter, Google, Grok, or local LM Studio.
-- `module.translator_params.LLM_API_Translator.endpoint`: set the provider's API Base URL, for example `https://example.com/v1`. Do not include the full `/chat/completions` path.
-- `module.translator_params.LLM_API_Translator.apikey`: set the provider API key. Do not commit real keys to a public repository.
-- `module.translator_params.LLM_API_Translator.multiple_keys`: optional; separate keys with semicolons `;` or newlines. When this field is set, the translator rotates through these keys instead of using `apikey`.
-- `module.translator_params.LLM_API_Translator.model`: select a built-in model if available; otherwise set it to `LLMS: (override model field)`.
+- `module.translator_params.LLM_API_Translator.endpoint`: set the provider's Base URL, for example `https://example.com/v1`. Do not include the full `/chat/completions` path.
 - `module.translator_params.LLM_API_Translator.override model`: set the provider's actual model name, for example `deepseek-chat`, `qwen-plus`, or `provider/model-name`.
-- `module.translator_params.LLM_API_Translator.max requests per minute`, `delay`, `batch_size`, and `max tokens`: tune these based on the provider's rate limits and model context length.
+- `module.translator_params.LLM_API_Translator.apikey`: set the provider API key. Do not commit real keys to a public repository.
 
 Minimal example:
 
@@ -46,18 +41,14 @@ Minimal example:
     "translator": "LLM_API_Translator",
     "translator_params": {
       "LLM_API_Translator": {
-        "provider": "OpenAI",
         "endpoint": "https://example.com/v1",
-        "apikey": "YOUR_API_KEY",
-        "model": "LLMS: (override model field)",
-        "override model": "provider/model-name"
+        "override model": "provider/model-name",
+        "apikey": "YOUR_API_KEY"
       }
     }
   }
 }
 ```
-
-If the API fails with an error about `response_format` or JSON structure, the service may not be fully OpenAI-compatible or may not support JSON object output. In that case, `modules/translators/trans_llm_api.py` needs a request-parameter or response-parsing change.
 
 Run a batch job:
 
