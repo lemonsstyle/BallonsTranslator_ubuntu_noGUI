@@ -1,174 +1,105 @@
-> [!IMPORTANT]  
-> **If you're sharing the translated result publicly and no experienced human translator participated in a throughout translating or proofreading, please mark it as machine translation somewhere clear to see.**
+# Manga Batch Translation Tool
 
-# BallonTranslator
-[简体中文](/README.md) | English | [pt-BR](doc/README_PT-BR.md) | [Русский](doc/README_RU.md) | [日本語](doc/README_JA.md) | [Indonesia](doc/README_ID.md) | [Tiếng Việt](doc/README_VI.md) | [한국어](doc/README_KO.md) | [Español](doc/README_ES.md) | [Français](doc/README_FR.md)
+中文版本: [README.md](README.md)
 
-Yet another computer-aided comic/manga translation tool powered by deep learning.
+This project is based on BallonsTranslator and is currently focused on headless batch translation for manga image folders. It can detect text areas, run OCR, translate text, remove the original text, and export rendered result images according to `config/config.json`.
 
-<img src="doc/src/ui0.jpg" div align=center>
+## Features
 
-<p align=center>
-preview
-</p>
+- Batch process one or more manga image folders.
+- Detect speech bubbles/text regions and extract source text with OCR.
+- Translate text with the configured translator, including `LLM_API_Translator`.
+- Optionally generate book-level OCR context before translation so the LLM can keep names, terms, and tone consistent.
+- Inpaint original text regions and export final translated images.
 
-# Features
-* Fully automated translation  
-  - Support automatic text-detection, recognition, removal, and translation. Overall performance is dependent upon these modules.
-  - Typesetting is based on the formatting estimation of the original text.
-  - Works decently with manga and comics.
-  - Improved manga->English, English->Chinese typesetting (based on the extraction of balloon regions.).
-  
-* Image editing  
-  - Support mask editing & inpainting (something like spot healing brush tool in PS) 
-  - Adapted to images with extreme aspect ratio such as webtoons
-  
-* Text editing  
-  - Support rich text formatting and [text style presets](https://github.com/dmMaze/BallonsTranslator/pull/311), translated texts can be edited interactively.
-  - Support search & replace
-  - Support export/import to/from word documents
+## Usage
 
-# Installation
+Check `config/config.json` before running. The most important fields are:
 
-## On Windows
-If you don't want to install Python and Git by yourself and have access to the Internet:  
-Download BallonsTranslator_dev_src_with_gitpython.7z from [MEGA](https://mega.nz/folder/gmhmACoD#dkVlZ2nphOkU5-2ACb5dKw) or [Google Drive](https://drive.google.com/drive/folders/1uElIYRLNakJj-YS0Kd3r3HE-wzeEvrWd?usp=sharing), unzip it and run launch_win.bat.   
-Run scripts/local_gitpull.bat to get the latest update.
-Note these provided packages cannot run on Windows 7, Win 7 users need to install [Python 3.8](https://www.python.org/downloads/release/python-3810/) and run the source code.
+- `module.translator`
+- `module.translate_source`
+- `module.translate_target`
+- `module.translator_params`
+- `module.enable_detect`
+- `module.enable_ocr`
+- `module.enable_translate`
+- `module.enable_inpaint`
 
-## Run the source code
+### Using Another AI Service
 
-Install [Python](https://www.python.org/downloads/release/python-31011) **<= 3.12** (dont use the one installed from microsoft store) and [Git](https://git-scm.com/downloads).
+To use a third-party AI service that you configured yourself, first confirm that the service provides an OpenAI-compatible Chat Completions API. The API base URL usually ends with `/v1`. Update these fields in `config/config.json`:
+
+- `module.translator`: keep or set it to `LLM_API_Translator`.
+- `module.translator_params.LLM_API_Translator.provider`: for most third-party OpenAI-compatible services, use `OpenAI`; use the matching option only for OpenRouter, Google, Grok, or local LM Studio.
+- `module.translator_params.LLM_API_Translator.endpoint`: set the provider's API Base URL, for example `https://example.com/v1`. Do not include the full `/chat/completions` path.
+- `module.translator_params.LLM_API_Translator.apikey`: set the provider API key. Do not commit real keys to a public repository.
+- `module.translator_params.LLM_API_Translator.multiple_keys`: optional; separate keys with semicolons `;` or newlines. When this field is set, the translator rotates through these keys instead of using `apikey`.
+- `module.translator_params.LLM_API_Translator.model`: select a built-in model if available; otherwise set it to `LLMS: (override model field)`.
+- `module.translator_params.LLM_API_Translator.override model`: set the provider's actual model name, for example `deepseek-chat`, `qwen-plus`, or `provider/model-name`.
+- `module.translator_params.LLM_API_Translator.max requests per minute`, `delay`, `batch_size`, and `max tokens`: tune these based on the provider's rate limits and model context length.
+
+Minimal example:
+
+```json
+{
+  "module": {
+    "translator": "LLM_API_Translator",
+    "translator_params": {
+      "LLM_API_Translator": {
+        "provider": "OpenAI",
+        "endpoint": "https://example.com/v1",
+        "apikey": "YOUR_API_KEY",
+        "model": "LLMS: (override model field)",
+        "override model": "provider/model-name"
+      }
+    }
+  }
+}
+```
+
+If the API fails with an error about `response_format` or JSON structure, the service may not be fully OpenAI-compatible or may not support JSON object output. In that case, `modules/translators/trans_llm_api.py` needs a request-parameter or response-parsing change.
+
+Run a batch job:
 
 ```bash
-# Clone this repo
-$ git clone https://github.com/dmMaze/BallonsTranslator.git ; cd BallonsTranslator
-
-# Launch app
-$ python3 launch.py
-
-# Update app
-$ python3 launch.py --update
+python launch.py --headless --exec_dirs "/path/to/chapter1,/path/to/chapter2"
 ```
 
-Note the first time you launch it will install the required libraries and download models automatically. If the downloads fail, you will need to download the **data** folder (or missing files mentioned in the terminal) from [MEGA](https://mega.nz/folder/gmhmACoD#dkVlZ2nphOkU5-2ACb5dKw) or [Google Drive](https://drive.google.com/drive/folders/1uElIYRLNakJj-YS0Kd3r3HE-wzeEvrWd?usp=sharing) and save it to the corresponding path in source code folder.
+Notes:
 
-## Build macOS application (compatible with both intel and apple silicon chips)
-[Reference](doc/macOS_app.md)  
-Some issues may occur, running the source code directly is the recommended way for now.
+- `exec_dirs` is a comma-separated list of folders.
+- Do not add spaces after commas.
+- Each folder creates or reuses an `imgtrans_<folder-name>.json` project file.
+- Final images are written to the folder's `result/` directory.
+- To pass a glossary or reference document:
 
-# Usage
-
-**It is recommended to run the program in a terminal in case it crashed and left no information, see the following gif.**
-<img src="doc/src/run.gif">  
-- The first time you run the application, please select the translator and set the source and target languages by clicking the settings icon.
-- Open a folder containing images of a comic (manga/manhua/manhwa) that need translation by clicking the folder icon.
-- Click the `Run` button and wait for the process to complete.
-
-The font formats such as font size and color are determined by the program automatically in this process, you can predetermine those formats by change corresponding options from "decide by program" to "use global setting" in the config panel->Typesetting. (global settings are those formats shown by the right font format panel when you are not editing any textblock in the scene)
-
-## Image Editing
-
-### Inpaint Tool
-<img src="doc/src/imgedit_inpaint.gif">
-<p align = "center">
-Image Editing Mode, Inpainting Tool
-</p>
-
-### rect tool
-<img src="doc/src/rect_tool.gif">
-<p align = "center">
-Rect Tool
-</p>
-
-To 'erase' unwanted inpainted results, use the inpainting tool or rect tool with your **right button** pressed.  
-The result depends on how accurately the algorithm ("method 1" and "method 2" in the gif) extracts the text mask. It could perform worse on complex text & background.  
-
-## Text editing
-<img src="doc/src/textedit.gif">
-<p align = "center">
-Text Editing Mode
-</p>
-
-<img src="doc/src/multisel_autolayout.gif" div align=center>
-<p align=center>
-Batch Text Formatting & Auto Layout
-</p>
-
-<img src="doc/src/ocrselected.gif" div align=center>
-<p align=center>
-OCR & Translate Selected Area
-</p>
-
-## Shortcuts
-* ```A```/```D``` or ```pageUp```/```Down``` to turn the page
-* ```Ctrl+Z```, ```Ctrl+Shift+Z``` to undo/redo most operations. (note the undo stack will be cleared after you turn the page)
-* ```T``` to text-editting mode (or the "T" button on the bottom toolbar).
-* ```W``` to activate text block creating mode, then drag the mouse on the canvas with the right button clicked to add a new text block. (see the text editing gif)
-* ```P``` to image-editting mode.  
-* In the image editing mode, use the slider on the right bottom to control the original image transparency.
-* Disable or enable any automatic modules via titlebar->run, run with all modules disabled will re-letter and re-render all text according to corresponding settings.  
-* Set parameters of automatic modules in the config panel.  
-* ```Ctrl++```/```Ctrl+-``` (Also ```Ctrl+Shift+=```) to resize image.
-* ```Ctrl+G```/```Ctrl+F``` to search globally/in current page.
-* ```0-9``` to adjust opacity of text layer
-* For text editing: bold - ```Ctrl+B```, underline - ```Ctrl+U```, Italics - ```Ctrl+I``` 
-* Set text shadow and transparency in the text style panel -> Effect.  
-* ```Alt+Arrow Keys``` or ```Alt+WASD``` (```pageDown``` or ```pageUp``` while in text editing mode) to switch between text blocks.
-  
-<img src="doc/src/configpanel.png">
-
-## Headless mode (Run without GUI)
-``` python
-python launch.py --headless --exec_dirs "[DIR_1],[DIR_2]..."
+```bash
+python launch.py --headless --exec_dirs "/path/to/chapter1" --reference "/path/to/reference.md"
 ```
-Note the configuration (source language, target language, inpaint model, etc) will load from config/config.json.  
-If the rendered font size is not right, specify logical DPI manually via ```--ldpi ```, typical values are 96 and 72.
 
+## File Structure
 
-# Automation modules
-This project is heavily dependent upon [manga-image-translator](https://github.com/zyddnys/manga-image-translator), online service and model training is not cheap, please consider to donate the project:  
-- Ko-fi: <https://ko-fi.com/voilelabs>
-- Patreon: <https://www.patreon.com/voilelabs>
-- 爱发电: <https://afdian.net/@voilelabs>  
+- `launch.py`: entry point for command-line arguments, config loading, and environment setup.
+- `config/config.json`: main runtime config for modules, languages, API settings, models, and stage switches.
+- `modules/`: core processing modules for detection, OCR, translation, and inpainting.
+- `modules/translators/`: translator implementations; `trans_llm_api.py` is the general LLM API translator.
+- `ui/`: main workflow and Qt UI code; headless mode reuses the same pipeline control.
+- `utils/`: project files, image I/O, config, logging, and shared helpers.
+- `data/`: model, cache, or runtime data.
+- `logs/`: runtime logs.
 
-[Sugoi translator](https://sugoitranslator.com/) is created by [mingshiba](https://www.patreon.com/mingshiba).
-  
-## Text detection
- * Support English and Japanese text detection, training code and more details can be found at [comic-text-detector](https://github.com/dmMaze/comic-text-detector)
- * Support using text detection from [Starriver Cloud (Tuanzi Manga OCR)](https://cloud.stariver.org.cn/). Username and password need to be filled in, and automatic login will be performed each time the program is launched.
+## Workflow
 
-   * For detailed instructions, see **Tuanzi OCR Instructions**: ([Chinese](doc/团子OCR说明.md) & [Brazilian Portuguese](doc/Manual_TuanziOCR_pt-BR.md) only)
- 
- * `YSGDetector` models are trained by [lhj5426](https://github.com/lhj5426), these models would filter out onomatopoeia in CGs/Manga, download checkpoints from [YSGYoloDetector](https://huggingface.co/YSGforMTL/YSGYoloDetector) and put into `data/models`. 
+1. `launch.py` loads config and starts in headless mode.
+2. `MainWindow.run_batch()` parses `exec_dirs` and opens each manga folder.
+3. If no project JSON exists, the project scans images and creates one.
+4. The pipeline runs text detection, OCR, mask saving, and inpainting page by page.
+5. If `LLM_API_Translator.enable_book_context` is enabled, all OCR text is collected and sent once to the LLM to generate a context summary.
+6. The translator translates each page or batch of text blocks and writes results back to the project.
+7. Each completed page is saved to the project JSON and rendered to `result/`.
 
+## Role of AI
 
-## OCR
- * All mit* models are from manga-image-translator, support English, Japanese and Korean recognition and text color extraction.
- * [manga_ocr](https://github.com/kha-white/manga-ocr) is from [kha-white](https://github.com/kha-white), text recognition for Japanese, with the main focus being Japanese manga.
- * [PaddleOCRVLManga](https://huggingface.co/jzhang533/PaddleOCR-VL-For-Manga) finetuned on Japanese manga
- * Support using OCR from [Starriver Cloud (Tuanzi Manga OCR)](https://cloud.stariver.org.cn/). Username and password need to be filled in, and automatic login will be performed each time the program is launched.
-   * The current implementation uses OCR on each textblock individually, resulting in slower speed and no significant improvement in accuracy. It is not recommended. If needed, please use the Tuanzi Detector instead.
-   * When using the Tuanzi Detector for text detection, it is recommended to set OCR to none_ocr to directly read the text, saving time and reducing the number of requests.
-   * For detailed instructions, see **Tuanzi OCR Instructions**: ([Chinese](doc/团子OCR说明.md) & [Brazilian Portuguese](doc/Manual_TuanziOCR_pt-BR.md) only)
-* Added as an "optional" PaddleOCR module. In Debug mode you will see a message stating that it is not there. You can simply install it by following the instructions described there. If you don’t want to install the package yourself, just uncomment (remove the `#`) the lines with paddlepaddle(gpu) and paddleocr. Bet everything at your own peril andrisk. For me (bropines) and two testers, everything was installed fine, you may have an error. Write about it in issue and tag me.
-* Added [OneOCR](https://github.com/b1tg/win11-oneocr). Local WINDOWS model taken from SnippingTOOL or Win.PHOTOS applications. To use it, you need to place the model and DLL files in the 'data/models/one-ocr' folder. Before running, it is better to throw the files at once. Read how to find and get DLL and model files here: https://github.com/dmMaze/BallonsTranslator/discussions/859#discussioncomment-12876757 . Thanks AuroraWright for the project [OneOCR](https://github.com/AuroraWright/oneocr)
- * OCR setting: Font recognition. Download the [Font Recognition Model (YuzuMarker.FontDetection)](https://github.com/JeffersonQin/YuzuMarker.FontDetection) and place it in the data\models\YuzuMarker.FontDetection directory.
-  The three required files are: `data\models\YuzuMarker.FontDetection\font_dataset`, `data\models\YuzuMarker.FontDetection\name=4x-epoch=18-step=368676.ckpt`, and `data\font_demo_cache.bin`
-  Font names with a recognition confidence rate greater than 60% will be saved in the `_detected_font_name` field of the JSON file. Currently, no visual display is provided. When exporting LabelPlus txt using the script [scripts/BTjson_to_LPtxt.pyw], you can optionally include font and font size information for importing into other software (such as Photoshop/InDesign) for text embedding.
-
-## Inpainting
-  * AOT is from [manga-image-translator](https://github.com/zyddnys/manga-image-translator).
-  * All lama* are finetuned using [LaMa](https://github.com/advimman/lama)
-  * PatchMatch is an algorithm from [PyPatchMatch](https://github.com/vacancy/PyPatchMatch), this program uses a [modified version](https://github.com/dmMaze/PyPatchMatchInpaint) by me. 
-  
-## Translators
-* **You can find information about Translators modules [here.](doc/modules/translators.md)**
-
-## FAQ & Misc
-* If your computer has an Nvidia GPU or Apple silicon, the program will enable hardware acceleration. 
-* Add support for [saladict](https://saladict.crimx.com) (*All-in-one professional pop-up dictionary and page translator*) in the mini menu on text selection. [Installation guide](doc/saladict.md)
-* Accelarate performance if you have a [NVIDIA's CUDA](https://pytorch.org/docs/stable/notes/cuda.html) or [AMD's ROCm](https://pytorch.org/docs/stable/notes/hip.html) device as most modules uses [PyTorch](https://pytorch.org/get-started/locally/).
-* Fonts are from your system's fonts.
-* Thanks to [bropines](https://github.com/bropines) for the Russian localization.
-* Added Export to photoshop JSX script by [bropines](https://github.com/bropines). </br> To read the instructions, improve the code and just poke around to see how it works, you can go to `scripts/export to photoshop` -> `install_manual.md`.
+- Detection, OCR, and inpainting models automate the image-processing stages.
+- The LLM translator converts OCR text into the target language.
+- With book-level context enabled, the LLM also creates a summary to improve consistency for names, terminology, tone, and setting.
